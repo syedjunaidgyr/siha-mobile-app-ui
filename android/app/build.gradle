@@ -1,0 +1,131 @@
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+apply plugin: "org.jetbrains.kotlin.android"
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+// React Native configuration - autolinking is handled by settings.gradle
+
+/**
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ */
+def enableProguardInReleaseBuilds = true
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.yourcare"
+    defaultConfig {
+        applicationId "com.yourcare"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        
+        // API URL configuration - can be overridden via gradle.properties
+        // Set API_BASE_URL in gradle.properties or use default
+        def apiBaseUrl = project.findProperty('API_BASE_URL') ?: 'http://192.168.1.3:3000/v1'
+        def aiServiceUrl = project.findProperty('AI_SERVICE_URL') ?: 'http://192.168.1.3:3000/api'
+        
+        buildConfigField "String", "API_BASE_URL", "\"${apiBaseUrl}\""
+        buildConfigField "String", "AI_SERVICE_URL", "\"${aiServiceUrl}\""
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
+    kotlinOptions {
+        jvmTarget = '17'
+        freeCompilerArgs += [
+            '-Xskip-metadata-version-check',
+            '-Xno-param-assertions',
+            '-Xno-call-assertions',
+            '-Xno-receiver-assertions',
+            '-Xno-optimized-callable-references'
+        ]
+    }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            // Use dev API URLs in debug builds
+            buildConfigField "String", "API_BASE_URL", "\"http://192.168.1.3:3000/v1\""
+            buildConfigField "String", "AI_SERVICE_URL", "\"http://192.168.1.3:3001/api\""
+        }
+        release {
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
+            signingConfig signingConfigs.debug
+            minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            
+            // Release builds use defaultConfig values (can be overridden via gradle.properties)
+            // To use dev server for testing, add to gradle.properties:
+            // API_BASE_URL=http://192.168.1.3:3000/v1
+            // AI_SERVICE_URL=http://192.168.1.3:3001/api
+        }
+    }
+    
+    // Split APKs by ABI to reduce size
+    splits {
+        abi {
+            reset()
+            enable true
+            universalApk false  // Set to true if you want a universal APK as well
+            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+        }
+    }
+    
+    // Generate version codes for each ABI
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            def versionCodes = ["armeabi-v7a": 1, "x86": 2, "arm64-v8a": 3, "x86_64": 4]
+            def abi = output.getFilter(com.android.build.OutputFile.ABI)
+            if (abi != null) {
+                output.versionCodeOverride =
+                        defaultConfig.versionCode * 1000 + versionCodes.get(abi)
+            }
+        }
+    }
+}
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    // Autolinking will add native modules here automatically
+    apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
