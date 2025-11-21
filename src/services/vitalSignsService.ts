@@ -1,4 +1,4 @@
-import api, { aiApi } from '../config/api';
+import api from '../config/api';
 import { MetricService, MetricInput } from './metricService';
 import { Platform } from 'react-native';
 import SensorService from './sensorService';
@@ -59,8 +59,8 @@ export class VitalSignsService {
         console.log('Sensor data not available:', error);
       }
 
-      // Send frames to AI service for analysis
-      const response = await aiApi.post('/ai/analyze-video', {
+      // Send frames to backend API for analysis (endpoint is on main backend, not separate AI service)
+      const response = await api.post('/ai/analyze-video', {
         frames: base64Frames,
         save: false, // Don't save yet, we'll save after user confirms
         sensorData: sensorData, // Include sensor data for better analysis
@@ -181,8 +181,8 @@ export class VitalSignsService {
     const startTime = Date.now();
 
     try {
-      // Send to AI service
-      const response = await aiApi.post('/ai/analyze-video', {
+      // Send to backend API for analysis (endpoint is on main backend, not separate AI service)
+      const response = await api.post('/ai/analyze-video', {
         frames: [imageBase64],
         save: false,
       });
