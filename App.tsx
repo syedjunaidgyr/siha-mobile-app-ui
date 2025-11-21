@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar, Platform } from 'react-native';
+import { StatusBar, Platform, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -91,9 +91,14 @@ export default function App() {
       setCheckingProfile(true);
       const complete = await ProfileService.isProfileComplete();
       setProfileComplete(complete);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Profile check error:', error);
+      // If it's a network error or auth error, don't crash - just set profile as incomplete
       setProfileComplete(false);
+      // If it's a 401, user needs to login again
+      if (error?.response?.status === 401) {
+        setIsAuthenticated(false);
+      }
     } finally {
       setCheckingProfile(false);
     }
@@ -115,7 +120,11 @@ export default function App() {
   };
 
   if (isLoading || checkingProfile) {
-    return null; // Or a loading screen
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
   }
 
   return (
@@ -199,4 +208,13 @@ export default function App() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+});
 

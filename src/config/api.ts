@@ -32,25 +32,28 @@ const buildConfigAiUrl = BuildConfigModule?.getConstants?.()?.AI_SERVICE_URL;
 
 // Get API URLs from BuildConfig (Android) or use defaults
 // BuildConfig values are set in android/app/build.gradle and can be overridden via gradle.properties
-const API_BASE_URL = buildConfigApiUrl || (
-  __DEV__
-    ? (Platform.OS === 'android' 
-        // ? 'http://13.203.161.24:4000/v1'  // Physical Device - your computer's IP address
-        // ? 'http://10.0.2.2:3000/v1'  // Android Emulator - uncomment if using emulator
-        ? 'http://13.203.161.24:4000/v1'  // ADB port forwarding - uncomment if using: adb reverse tcp:3000 tcp:3000
-        : 'http://localhost:3000/v1')  // iOS Simulator
-    : 'http://13.203.161.24:4000/v1'
-);
+const DEFAULT_BACKEND_HOST = 'http://13.203.161.24';
+
+const API_BASE_URL =
+  buildConfigApiUrl ||
+  (__DEV__
+    ? Platform.select({
+        android: 'http://10.0.2.2:4000/v1',
+        ios: 'http://localhost:4000/v1',
+        default: 'http://localhost:4000/v1',
+      })!
+    : `${DEFAULT_BACKEND_HOST}:4000/v1`);
 
 // AI Service URL (separate microservice)
-const AI_SERVICE_URL = buildConfigAiUrl || (
-  __DEV__
-    ? (Platform.OS === 'android'
-        // ? 'http://13.203.161.24:3001/api' 
-         ? 'http://13.203.161.24:3001/api'  // Physical Device
-        : 'http://localhost:3001/api')  // iOS Simulator
-    : 'http://13.203.161.24:4000/api'
-);
+const AI_SERVICE_URL =
+  buildConfigAiUrl ||
+  (__DEV__
+    ? Platform.select({
+        android: 'http://10.0.2.2:3001/api',
+        ios: 'http://localhost:3001/api',
+        default: 'http://localhost:3001/api',
+      })!
+    : `${DEFAULT_BACKEND_HOST}:3001/api`);
 
 // Log API configuration (only once to avoid spam)
 if (__DEV__) {
