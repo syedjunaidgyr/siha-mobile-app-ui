@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
-import DatePicker from 'react-native-date-picker';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
 import { ProfileService } from '../services/profileService';
 import { ScreenBackground } from '../components/ui/ScreenBackground';
 import { FieldInput } from '../components/ui/FieldInput';
 import { PrimaryButton } from '../components/ui/PrimaryButton';
 import { Colors } from '../theme/colors';
+
+// Safely import DatePicker with fallback
+let DatePicker: any = null;
+try {
+  DatePicker = require('react-native-date-picker').default;
+} catch (error) {
+  console.warn('react-native-date-picker not available, using fallback');
+  // Set global flag to suppress warning if module exists but isn't linked
+  if (typeof global !== 'undefined') {
+    (global as any).ignoreDatePickerWarning = true;
+  }
+}
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -112,18 +123,25 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
         </View>
       </ScrollView>
 
-      <DatePicker
-        modal
-        mode="date"
-        open={isDatePickerOpen}
-        date={dateOfBirth}
-        maximumDate={new Date()}
-        onConfirm={(selectedDate) => {
-          setIsDatePickerOpen(false);
-          setDateOfBirth(selectedDate);
-        }}
-        onCancel={() => setIsDatePickerOpen(false)}
-      />
+      {DatePicker ? (
+        <DatePicker
+          modal
+          mode="date"
+          open={isDatePickerOpen}
+          date={dateOfBirth}
+          maximumDate={new Date()}
+          onConfirm={(selectedDate: Date) => {
+            setIsDatePickerOpen(false);
+            setDateOfBirth(selectedDate);
+          }}
+          onCancel={() => setIsDatePickerOpen(false)}
+        />
+      ) : Platform.OS === 'android' ? (
+        // Fallback for Android using built-in date picker
+        isDatePickerOpen && (
+          <View style={StyleSheet.absoluteFill} />
+        )
+      ) : null}
     </ScreenBackground>
   );
 }

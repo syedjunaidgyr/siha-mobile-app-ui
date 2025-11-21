@@ -4,9 +4,20 @@ import * as Keychain from 'react-native-keychain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Get BuildConfig values from native module (Android only)
-const BuildConfigModule = NativeModules.BuildConfigModule;
-const buildConfigApiUrl = BuildConfigModule?.getConstants?.()?.API_BASE_URL;
-const buildConfigAiUrl = BuildConfigModule?.getConstants?.()?.AI_SERVICE_URL;
+let buildConfigApiUrl: string | undefined;
+let buildConfigAiUrl: string | undefined;
+
+try {
+  const BuildConfigModule = NativeModules.BuildConfigModule;
+  if (BuildConfigModule?.getConstants) {
+    const constants = BuildConfigModule.getConstants();
+    buildConfigApiUrl = constants?.API_BASE_URL;
+    buildConfigAiUrl = constants?.AI_SERVICE_URL;
+  }
+} catch (error) {
+  console.warn('BuildConfigModule not available:', error);
+  // Continue with default values
+}
 
 // For Android emulator:
 // Option 1: Use 10.0.2.2 (default Android emulator host mapping)

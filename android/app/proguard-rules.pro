@@ -65,6 +65,10 @@
 # React Native SVG
 -keep class com.horcrux.svg.** { *; }
 
+# React Native Date Picker
+-keep class com.henninghall.date_picker.** { *; }
+-dontwarn com.henninghall.date_picker.**
+
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
@@ -92,6 +96,28 @@
 
 # Keep custom model classes (if you have any)
 -keep class com.yourcare.** { *; }
+
+# Keep BuildConfig class (for API URL configuration)
+-keep class com.yourcare.BuildConfig { *; }
+-keepclassmembers class com.yourcare.BuildConfig {
+    public static final java.lang.String *;
+}
+
+# Keep NativeModules
+-keep class com.facebook.react.bridge.NativeModule { *; }
+-keep class * implements com.facebook.react.bridge.NativeModule { *; }
+
+# Keep React Native Linear Gradient
+-keep class com.BV.LinearGradient.** { *; }
+
+# Keep JavaScript bundle
+-keep class com.facebook.react.** { *; }
+-dontwarn com.facebook.react.**
+
+# Keep JavaScript interface classes
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
 # Remove logging in release
 -assumenosideeffects class android.util.Log {

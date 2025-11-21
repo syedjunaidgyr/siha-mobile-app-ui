@@ -86,11 +86,13 @@ export default function App() {
       if (authenticated) {
         await checkProfileComplete();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Auth check error:', error);
+      // Always set auth to false on error to prevent crashes
       setIsAuthenticated(false);
       setProfileComplete(false);
     } finally {
+      // Always mark auth as checked to prevent infinite loading
       setAuthChecked(true);
     }
   };

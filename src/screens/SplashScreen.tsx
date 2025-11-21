@@ -4,7 +4,13 @@ import { Colors, TextStyles } from '../theme';
 import LinearGradient from 'react-native-linear-gradient';
 import { Gradients } from '../theme/colors';
 
-const logoImage = require('../assets/logo.png');
+let logoImage: any;
+try {
+  logoImage = require('../assets/logo.png');
+} catch (error) {
+  console.warn('Logo image not found, using fallback');
+  logoImage = null;
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,31 +26,53 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   const coreRotateAnim = useRef(new Animated.Value(0)).current;
   const glowPulseAnim = useRef(new Animated.Value(1)).current;
 
+  // Ensure onFinish is always called even if animations fail
+  const onFinishRef = useRef(onFinish);
   useEffect(() => {
-    // Core rotation animation
-    Animated.loop(
-      Animated.timing(coreRotateAnim, {
-        toValue: 360,
-        duration: 20000,
-        useNativeDriver: true,
-      })
-    ).start();
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
 
-    // Glow pulse animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowPulseAnim, {
-          toValue: 1.3,
-          duration: 2000,
+  // Safety timeout - always finish splash after 5 seconds max
+  useEffect(() => {
+    const safetyTimeout = setTimeout(() => {
+      console.warn('[SplashScreen] Safety timeout reached, finishing splash');
+      onFinishRef.current();
+    }, 5000);
+
+    return () => clearTimeout(safetyTimeout);
+  }, []);
+
+  useEffect(() => {
+    let rotationAnim: Animated.CompositeAnimation | null = null;
+    let glowAnim: Animated.CompositeAnimation | null = null;
+    
+    try {
+      // Core rotation animation
+      rotationAnim = Animated.loop(
+        Animated.timing(coreRotateAnim, {
+          toValue: 360,
+          duration: 20000,
           useNativeDriver: true,
-        }),
-        Animated.timing(glowPulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+        })
+      );
+      rotationAnim.start();
+
+      // Glow pulse animation
+      glowAnim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowPulseAnim, {
+            toValue: 1.3,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(glowPulseAnim, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      glowAnim.start();
 
     // Initial entrance animation
     Animated.parallel([
@@ -78,32 +106,56 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       ]).start();
     }, 1200);
 
-    // Exit animation
-    const timer = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(textFadeAnim, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1.5,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        onFinish();
-      });
-    }, 3800);
+      // Exit animation
+      const timer = setTimeout(() => {
+        try {
+          Animated.parallel([
+            Animated.timing(fadeAnim, {
+              toValue: 0,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+            Animated.timing(textFadeAnim, {
+              toValue: 0,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+            Animated.timing(scaleAnim, {
+              toValue: 1.5,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
+            try {
+              onFinishRef.current();
+            } catch (err) {
+              console.error('[SplashScreen] Error calling onFinish:', err);
+              onFinishRef.current();
+            }
+          });
+        } catch (err) {
+          console.error('[SplashScreen] Error in exit animation:', err);
+          // Ensure onFinish is always called
+          onFinishRef.current();
+        }
+      }, 3800);
 
-    return () => {
-      clearTimeout(timer);
-    };
+      return () => {
+        clearTimeout(timer);
+        try {
+          rotationAnim?.stop();
+          glowAnim?.stop();
+        } catch (err) {
+          console.warn('[SplashScreen] Error stopping animations:', err);
+        }
+      };
+    } catch (error: any) {
+      console.error('[SplashScreen] Error initializing animations:', error);
+      // Always call onFinish even if animations fail
+      setTimeout(() => {
+        onFinishRef.current();
+      }, 1000);
+    }
   }, []);
 
   const coreRotateInterpolate = coreRotateAnim.interpolate({
@@ -163,11 +215,18 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             <View style={styles.coreGlowOuter} />
             <View style={styles.core}>
               <View style={styles.coreInner}>
-                <Image 
-                  source={logoImage} 
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
+                {logoImage ? (
+                  <Image 
+                    source={logoImage} 
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                    onError={() => console.warn('Logo image failed to load')}
+                  />
+                ) : (
+                  <View style={styles.logoPlaceholder}>
+                    <Text style={styles.logoPlaceholderText}>SIHA</Text>
+                  </View>
+                )}
               </View>
             </View>
           </Animated.View>
@@ -273,6 +332,17 @@ const styles = StyleSheet.create({
   logoImage: {
     width: 60,
     height: 60,
+  },
+  logoPlaceholder: {
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoPlaceholderText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: Colors.accent,
   },
   textContainer: {
     alignItems: 'center',
