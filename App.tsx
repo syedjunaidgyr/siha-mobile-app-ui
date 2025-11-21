@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { StatusBar, Platform, View, ActivityIndicator, StyleSheet } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, CommonActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
+import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -22,7 +23,7 @@ import { BottomNavBar } from './src/components/navigation/BottomNavBar';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-function MainTabs({ navigation }: any) {
+function MainTabs({ navigation, onLogout }: any) {
   return (
     <Tab.Navigator
       tabBar={(props) => <BottomNavBar {...props} />}
@@ -51,26 +52,32 @@ function MainTabs({ navigation }: any) {
           tabBarLabel: 'History',
         }}
       />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{
-          tabBarLabel: 'Profile',
-        }}
-      />
+      <Tab.Screen name="Profile">
+        {(props) => <ProfileScreen {...props} onLogout={onLogout} />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [profileComplete, setProfileComplete] = useState(false);
-  const [checkingProfile, setCheckingProfile] = useState(false);
+  const [splashFinished, setSplashFinished] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const navigationRef = useRef<any>(null);
 
+  // Start checking auth immediately when app loads
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Hide splash once both splash animation and auth check are done
+  useEffect(() => {
+    if (splashFinished && authChecked) {
+      setShowSplash(false);
+    }
+  }, [splashFinished, authChecked]);
 
   const checkAuth = async () => {
     try {
@@ -81,14 +88,15 @@ export default function App() {
       }
     } catch (error) {
       console.error('Auth check error:', error);
+      setIsAuthenticated(false);
+      setProfileComplete(false);
     } finally {
-      setIsLoading(false);
+      setAuthChecked(true);
     }
   };
 
   const checkProfileComplete = async () => {
     try {
-      setCheckingProfile(true);
       const complete = await ProfileService.isProfileComplete();
       setProfileComplete(complete);
     } catch (error: any) {
@@ -99,8 +107,6 @@ export default function App() {
       if (error?.response?.status === 401) {
         setIsAuthenticated(false);
       }
-    } finally {
-      setCheckingProfile(false);
     }
   };
 
@@ -114,21 +120,31 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await AuthService.logout();
-    setIsAuthenticated(false);
-    setProfileComplete(false);
+    try {
+      await AuthService.logout();
+      setIsAuthenticated(false);
+      setProfileComplete(false);
+      
+      // Reset navigation to Login screen
+      if (navigationRef.current) {
+        navigationRef.current.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
-  if (isLoading || checkingProfile) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setSplashFinished(true)} />;
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <StatusBar
         hidden={true}
         translucent={true}
@@ -176,7 +192,9 @@ export default function App() {
           </>
         ) : (
           <>
-          <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Screen name="Main">
+            {(props) => <MainTabs {...props} onLogout={handleLogout} />}
+          </Stack.Screen>
             <Stack.Screen 
               name="Vitals" 
               component={VitalsScreen}

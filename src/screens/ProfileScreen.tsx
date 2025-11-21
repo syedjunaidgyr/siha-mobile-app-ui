@@ -3,17 +3,25 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import DatePicker from 'react-native-date-picker';
 import { ProfileService, Profile } from '../services/profileService';
 import { LifestyleService } from '../services/lifestyleService';
-import { User } from 'lucide-react-native';
+import { AuthService } from '../services/authService';
+import { useNavigation, CommonActions } from '@react-navigation/native';
+import { User, LogOut } from 'lucide-react-native';
 import { ScreenBackground } from '../components/ui/ScreenBackground';
 import { PrimaryButton } from '../components/ui/PrimaryButton';
 import { Colors, Typography, TextStyles } from '../theme';
 import { Card3D } from '../components/3D';
 
-export default function ProfileScreen() {
+interface ProfileScreenProps {
+  onLogout?: () => Promise<void>;
+}
+
+export default function ProfileScreen({ onLogout }: ProfileScreenProps = {}) {
+  const navigation = useNavigation<any>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -106,6 +114,60 @@ export default function ProfileScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out? You will need to log in again to access your account.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setLoggingOut(true);
+            try {
+              // Use the logout handler from App.tsx if provided
+              if (onLogout) {
+                await onLogout();
+              } else {
+                // Fallback: Clear authentication tokens and user data
+                await AuthService.logout();
+                
+                // Navigate to root stack navigator
+                // The navigation structure: NavigationContainer -> Stack -> Tab -> Profile
+                // We need to get to the Stack navigator (root of conditional routes)
+                const tabNav = navigation.getParent(); // Tab navigator
+                const stackNav = tabNav?.getParent(); // Stack navigator
+                
+                if (stackNav) {
+                  // Reset the stack navigator to Login screen
+                  stackNav.dispatch(
+                    CommonActions.reset({
+                      index: 0,
+                      routes: [{ name: 'Login' }],
+                    })
+                  );
+                }
+              }
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            } finally {
+              // Always reset loading state after a brief delay to allow navigation to complete
+              setTimeout(() => {
+                setLoggingOut(false);
+              }, 300);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   if (loading) {
@@ -332,6 +394,26 @@ export default function ProfileScreen() {
             style={styles.saveButton}
           />
         )}
+
+        <View style={styles.logoutSection}>
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            disabled={loggingOut}
+          >
+            {loggingOut ? (
+              <ActivityIndicator size="small" color={Colors.danger} />
+            ) : (
+              <>
+                <LogOut size={18} color={Colors.danger} />
+                <Text style={styles.logoutButtonText}>Sign Out</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <Text style={styles.logoutHint}>
+            Sign out of your account and return to the login screen
+          </Text>
+        </View>
       </ScrollView>
     </ScreenBackground>
   );
@@ -533,6 +615,34 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: 8,
+  },
+  logoutSection: {
+    marginTop: 32,
+    alignItems: 'center',
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: Colors.danger,
+    backgroundColor: 'transparent',
+    minWidth: 160,
+  },
+  logoutButtonText: {
+    ...TextStyles.bodySemibold,
+    color: Colors.danger,
+  },
+  logoutHint: {
+    ...TextStyles.caption,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 12,
+    paddingHorizontal: 32,
   },
 });
 

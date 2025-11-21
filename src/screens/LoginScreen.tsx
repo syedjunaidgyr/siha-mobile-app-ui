@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, StatusBar } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { ArrowLeft, Eye, EyeOff, Mail, Lock } from 'lucide-react-native';
 import { AuthService } from '../services/authService';
 import { ScreenBackground } from '../components/ui/ScreenBackground';
 import { FieldInput } from '../components/ui/FieldInput';
 import { PrimaryButton } from '../components/ui/PrimaryButton';
-import { Colors } from '../theme/colors';
+import { Card3D } from '../components/3D';
+import { LoginIllustration } from '../components/illustrations/LoginIllustration';
+import { Colors, TextStyles } from '../theme';
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
@@ -15,8 +19,10 @@ export default function LoginScreen({
   onLoginSuccess,
   onNavigateToRegister,
 }: LoginScreenProps) {
+  const navigation = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -47,50 +53,111 @@ export default function LoginScreen({
 
   return (
     <ScreenBackground>
-    <View style={styles.container}>
-        <View style={styles.heroBadge}>
-          <Text style={styles.badgeText}>Welcome back</Text>
-        </View>
-        <Text style={styles.title}>Start your fitness{"\n"}journey</Text>
-        <Text style={styles.subtitle}>Log in to sync your habits, vitals and care plan.</Text>
+      <StatusBar barStyle="dark-content" />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            {navigation.canGoBack() && (
+              <TouchableOpacity 
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+              >
+                <ArrowLeft size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+          </View>
 
-        <View style={styles.formCard}>
-          <FieldInput
-            label="Email"
-            placeholder="Email address"
-        value={email}
-        onChangeText={setEmail}
-            autoCapitalize="none"
-        keyboardType="email-address"
-        autoComplete="email"
-      />
-          <FieldInput
-            label="Password"
-            placeholder="Enter password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoCapitalize="none"
-      />
+          {/* Welcome Section */}
+          <View style={styles.welcomeSection}>
+            <LoginIllustration />
+            <Text style={styles.title}>Welcome back</Text>
+          </View>
 
-          <PrimaryButton
-            label="Sign In"
-        onPress={handleLogin}
-            loading={loading}
-            style={{ marginTop: 4 }}
-          />
+          {/* Card */}
+          <Card3D depth={10} style={styles.card}>
+            <View style={styles.cardContent}>
+              <View style={styles.form}>
+                <View style={styles.inputWrapper}>
+                  <View style={styles.inputLabelContainer}>
+                    <Mail size={16} color={Colors.textMuted} />
+                    <Text style={styles.inputLabel}>Email Address</Text>
+                  </View>
+                  <FieldInput
+                    placeholder="Enter your email"
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoComplete="email"
+                    containerStyle={styles.inputContainer}
+                    style={styles.input}
+                  />
+                </View>
 
-          <TouchableOpacity style={styles.secondaryAction}>
-            <Text style={styles.secondaryActionText}>Forgot password?</Text>
-      </TouchableOpacity>
-        </View>
+                <View style={styles.inputWrapper}>
+                  <View style={styles.inputLabelContainer}>
+                    <Lock size={16} color={Colors.textMuted} />
+                    <Text style={styles.inputLabel}>Password</Text>
+                  </View>
+                  <View style={styles.passwordContainer}>
+                    <FieldInput
+                      placeholder="Enter your password"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      containerStyle={styles.inputContainer}
+                      style={[styles.input, styles.passwordInput]}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={styles.eyeButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={20} color={Colors.textMuted} />
+                      ) : (
+                        <Eye size={20} color={Colors.textMuted} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-        <TouchableOpacity onPress={onNavigateToRegister} style={styles.bottomLink}>
-          <Text style={styles.bottomLinkText}>
-            New here? <Text style={styles.linkAccent}>Create account</Text>
-        </Text>
-      </TouchableOpacity>
-    </View>
+                <TouchableOpacity 
+                  style={styles.forgotPassword}
+                  onPress={() => Alert.alert('Info', 'Forgot password feature coming soon')}
+                >
+                  <Text style={styles.forgotPasswordText}>Forgot your password?</Text>
+                </TouchableOpacity>
+
+                <PrimaryButton
+                  label="Sign in"
+                  onPress={handleLogin}
+                  loading={loading}
+                  style={styles.signInButton}
+                />
+              </View>
+            </View>
+          </Card3D>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account?</Text>
+            <TouchableOpacity onPress={onNavigateToRegister} style={styles.footerButtonContainer}>
+              <Text style={styles.footerButton}>Get Started</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </ScreenBackground>
   );
 }
@@ -98,60 +165,117 @@ export default function LoginScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 50 : 35,
+    paddingBottom: 24,
   },
-  heroBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.input,
-    marginBottom: 20,
+  header: {
+    marginBottom: 24,
   },
-  badgeText: {
+  backButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 24,
+    paddingVertical: 12,
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  footerText: {
+    ...TextStyles.body,
     color: Colors.textSecondary,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+  },
+  footerButtonContainer: {
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  footerButton: {
+    ...TextStyles.bodySemibold,
+    color: Colors.white,
+    fontSize: 14,
+  },
+  welcomeSection: {
+    marginBottom: 24,
+    alignItems: 'center',
   },
   title: {
-    fontSize: 36,
-    color: Colors.textPrimary,
+    ...TextStyles.h2,
+    fontSize: 28,
     fontWeight: '800',
-    marginBottom: 8,
-    lineHeight: 40,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    lineHeight: 34,
+    marginTop: 20,
   },
-  subtitle: {
-    color: Colors.textSecondary,
-    fontSize: 16,
-    marginBottom: 32,
-    lineHeight: 22,
-  },
-  formCard: {
+  card: {
     backgroundColor: Colors.card,
-    borderRadius: 32,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: 24,
+    overflow: 'hidden',
   },
-  secondaryAction: {
+  cardContent: {
+    padding: 20,
+  },
+  form: {
+    gap: 16,
+  },
+  inputWrapper: {
+    gap: 8,
+  },
+  inputLabelContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    gap: 8,
   },
-  secondaryActionText: {
-    color: Colors.textMuted,
-    fontSize: 13,
-  },
-  bottomLink: {
-    marginTop: 32,
-    alignItems: 'center',
-  },
-  bottomLinkText: {
+  inputLabel: {
+    ...TextStyles.smallSemibold,
     color: Colors.textSecondary,
+    fontSize: 14,
   },
-  linkAccent: {
+  inputContainer: {
+    marginBottom: 0,
+  },
+  input: {
+    fontSize: 15,
+    paddingVertical: 12,
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
+    zIndex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 32,
+    height: 32,
+  },
+  forgotPassword: {
+    alignSelf: 'flex-end',
+    marginTop: -8,
+    marginBottom: 8,
+  },
+  forgotPasswordText: {
+    ...TextStyles.smallMedium,
     color: Colors.accent,
-    fontWeight: '700',
+    fontSize: 14,
+  },
+  signInButton: {
+    marginTop: 8,
   },
 });
-
