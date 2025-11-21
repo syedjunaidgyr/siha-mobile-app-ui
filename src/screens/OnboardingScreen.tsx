@@ -20,9 +20,10 @@ try {
 
 interface OnboardingScreenProps {
   onComplete: () => void;
+  navigation?: any;
 }
 
-export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
+export default function OnboardingScreen({ onComplete, navigation }: OnboardingScreenProps) {
   const [gender, setGender] = useState<'male' | 'female' | 'other' | null>(null);
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
@@ -119,7 +120,33 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
             <Text style={styles.dateButtonHint}>Tap to adjust</Text>
           </TouchableOpacity>
 
+          <View style={styles.buttonContainer}>
           <PrimaryButton label="Save & Continue" onPress={handleNext} loading={loading} />
+            <TouchableOpacity 
+              style={styles.skipButton} 
+              onPress={() => {
+                Alert.alert(
+                  'Skip Onboarding',
+                  'You can complete your profile later from the Profile screen. Continue to the app?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Skip', 
+                      onPress: () => {
+                        // Mark as skip and call onComplete
+                        if (navigation) {
+                          navigation.setParams({ skip: true });
+                        }
+                        onComplete();
+                      }
+                    }
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.skipButtonText}>Skip for now</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
@@ -249,6 +276,18 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 4,
     fontSize: 12,
+  },
+  buttonContainer: {
+    gap: 12,
+  },
+  skipButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  skipButtonText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

@@ -1,7 +1,8 @@
-import api from '../config/api';
+import api, { videoApi } from '../config/api';
 import { MetricService, MetricInput } from './metricService';
 import { Platform } from 'react-native';
 import SensorService from './sensorService';
+import { Buffer } from 'buffer';
 
 export interface VitalSigns {
   heartRate?: number; // BPM
@@ -40,7 +41,7 @@ export class VitalSignsService {
 
       // Convert frames to base64 if they're ImageData objects
       // If they're already strings (base64), use them directly
-      const base64Frames = frames.map((frame) => {
+      let base64Frames = frames.map((frame) => {
         if (typeof frame === 'string') {
           return frame; // Already base64
         }
@@ -48,6 +49,21 @@ export class VitalSignsService {
         // For now, we'll expect base64 strings from the camera
         throw new Error('ImageData conversion not implemented. Please provide base64 strings.');
       });
+
+      // Optimize: Sample frames if we have too many to reduce payload size
+      // For video analysis, we typically need 10-15 frames, not 20+
+      const MAX_FRAMES = 15;
+      if (base64Frames.length > MAX_FRAMES) {
+        // Sample evenly across the frames
+        const step = Math.floor(base64Frames.length / MAX_FRAMES);
+        const sampledFrames: string[] = [];
+        for (let i = 0; i < base64Frames.length; i += step) {
+          sampledFrames.push(base64Frames[i]);
+          if (sampledFrames.length >= MAX_FRAMES) break;
+        }
+        console.log(`[VitalSignsService] Sampling ${base64Frames.length} frames down to ${sampledFrames.length} to reduce payload size`);
+        base64Frames = sampledFrames;
+      }
 
       // Get sensor data if available
       let sensorData = null;
@@ -59,12 +75,117 @@ export class VitalSignsService {
         console.log('Sensor data not available:', error);
       }
 
-      // Send frames to backend API for analysis (endpoint is on main backend, not separate AI service)
-      const response = await api.post('/ai/analyze-video', {
+      // Log payload size for debugging
+      const payloadSize = JSON.stringify({ frames: base64Frames, sensorData }).length;
+      const payloadSizeMB = (payloadSize / (1024 * 1024)).toFixed(2);
+      console.log(`[VitalSignsService] ${base64Frames.length} frames, payload size: ${payloadSizeMB} MB`);
+      
+      // Use S3 for large payloads (>20MB) to avoid socket hang up errors
+      const useS3 = parseFloat(payloadSizeMB) > 20;
+      
+      let response: any;
+      
+      if (useS3) {
+        console.log('[VitalSignsService] Using S3 for large payload upload...');
+        
+        // Step 1: Get presigned S3 upload URLs
+        const uploadUrlsResponse = await api.get(`/ai/upload-urls?frameCount=${base64Frames.length}`);
+        const uploadInfos = uploadUrlsResponse.data.uploadUrls;
+        
+        if (uploadInfos.length !== base64Frames.length) {
+          throw new Error(`Mismatch: got ${uploadInfos.length} upload URLs for ${base64Frames.length} frames`);
+        }
+        
+        // Step 2: Upload frames to S3
+        console.log(`[VitalSignsService] Uploading ${base64Frames.length} frames to S3...`);
+        const uploadPromises = base64Frames.map(async (frameBase64, index) => {
+          try {
+            const { uploadUrl, key } = uploadInfos[index];
+            
+            // Remove data URL prefix if present
+            const base64Data = frameBase64.replace(/^data:image\/[^;]+;base64,/, '');
+            
+            // Convert base64 to binary for S3 upload
+            let imageData: string | Uint8Array;
+            if (typeof Buffer !== 'undefined') {
+              const buffer = Buffer.from(base64Data, 'base64');
+              imageData = buffer;
+              console.log(`[VitalSignsService] Frame ${index + 1}: Converted to buffer, size: ${buffer.length} bytes`);
+            } else {
+              // Fallback: convert base64 to Uint8Array
+              const binaryString = atob(base64Data);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              imageData = bytes;
+              console.log(`[VitalSignsService] Frame ${index + 1}: Converted to Uint8Array, size: ${bytes.length} bytes`);
+            }
+            
+            // Upload to S3 using presigned URL
+            console.log(`[VitalSignsService] Uploading frame ${index + 1} to S3: ${key.substring(0, 50)}...`);
+            const uploadResponse = await fetch(uploadUrl, {
+              method: 'PUT',
+              body: imageData,
+              headers: {
+                'Content-Type': 'image/jpeg',
+              },
+            });
+            
+            if (!uploadResponse.ok) {
+              const errorText = await uploadResponse.text().catch(() => 'Unable to read error response');
+              console.error(`[VitalSignsService] S3 upload failed for frame ${index + 1}:`, {
+                status: uploadResponse.status,
+                statusText: uploadResponse.statusText || 'No status text',
+                errorBody: errorText.substring(0, 200),
+                url: uploadUrl.substring(0, 100) + '...',
+              });
+              throw new Error(`Failed to upload frame ${index + 1} to S3: Status ${uploadResponse.status} - ${errorText.substring(0, 100)}`);
+            }
+            
+            console.log(`[VitalSignsService] Successfully uploaded frame ${index + 1} to S3`);
+            return key;
+          } catch (error: any) {
+            console.error(`[VitalSignsService] Error uploading frame ${index + 1}:`, error);
+            // Re-throw with more context
+            if (error.message && error.message.includes('Failed to upload')) {
+              throw error;
+            }
+            throw new Error(`Failed to upload frame ${index + 1} to S3: ${error.message || 'Unknown error'}`);
+          }
+        });
+        
+        const s3Keys = await Promise.all(uploadPromises);
+        console.log(`[VitalSignsService] Successfully uploaded ${s3Keys.length} frames to S3`);
+        
+        // Step 3: Send S3 keys to backend for analysis
+        console.log('[VitalSignsService] Sending S3 keys to backend for analysis...');
+        response = await videoApi.post('/ai/analyze-video', {
+          s3Keys: s3Keys,
+          save: false,
+          sensorData: sensorData,
+        });
+      } else {
+        // For smaller payloads, use direct base64 (faster, no S3 overhead)
+        console.log('[VitalSignsService] Using direct base64 upload (payload < 20MB)...');
+        
+        // Test connectivity first with a small health check
+        try {
+          await api.get('/health');
+          console.log('[VitalSignsService] Health check passed, proceeding with video analysis');
+        } catch (healthError: any) {
+          console.error('[VitalSignsService] Health check failed - server may not be accessible:', healthError.message);
+          throw new Error('Cannot connect to server. Please check your network connection and ensure the server is running.');
+        }
+
+        // Send frames directly to backend API for analysis
+        console.log('[VitalSignsService] Sending video analysis request...');
+        response = await videoApi.post('/ai/analyze-video', {
         frames: base64Frames,
         save: false, // Don't save yet, we'll save after user confirms
         sensorData: sensorData, // Include sensor data for better analysis
       });
+      }
 
       const result = response.data.result;
       
@@ -169,6 +290,21 @@ export class VitalSignsService {
       };
     } catch (error: any) {
       console.error('Error analyzing face:', error);
+      
+      // Provide more helpful error messages
+      if (error.code === 'ERR_NETWORK') {
+        const errorMsg = 'Network connection failed. Please check:\n' +
+          '1. AWS Security Group allows port 4000\n' +
+          '2. Server is running on AWS\n' +
+          '3. Your device has internet connection\n' +
+          '\nTry: curl http://13.203.161.24:4000/health from your computer to verify server accessibility.';
+        throw new Error(errorMsg);
+      }
+      
+      if (error.response?.status === 413) {
+        throw new Error('Payload too large. Try capturing fewer frames or reducing image quality.');
+      }
+      
       throw new Error(error.response?.data?.message || error.message || 'Analysis failed');
     }
   }
@@ -182,7 +318,8 @@ export class VitalSignsService {
 
     try {
       // Send to backend API for analysis (endpoint is on main backend, not separate AI service)
-      const response = await api.post('/ai/analyze-video', {
+      // Use videoApi for consistency (even single frame)
+      const response = await videoApi.post('/ai/analyze-video', {
         frames: [imageBase64],
         save: false,
       });

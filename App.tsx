@@ -101,13 +101,59 @@ export default function App() {
     try {
       const complete = await ProfileService.isProfileComplete();
       setProfileComplete(complete);
+      console.log('Profile complete status:', complete);
     } catch (error: any) {
       console.error('Profile check error:', error);
-      // If it's a network error or auth error, don't crash - just set profile as incomplete
-      setProfileComplete(false);
+      
       // If it's a 401, user needs to login again
       if (error?.response?.status === 401) {
+        console.log('Unauthorized - user needs to login');
         setIsAuthenticated(false);
+        setProfileComplete(false);
+        return;
+      }
+      
+      // If it's a network error, try to get profile data directly to check completion
+      // This allows users to proceed even if the /complete endpoint fails
+      if (error?.code === 'ERR_NETWORK' || error?.code === 'ECONNREFUSED') {
+        console.warn('Network error checking profile - trying alternative check');
+        try {
+          // Try to get the full profile and check if it has required fields
+          const profile = await ProfileService.getProfile();
+          const hasRequiredFields = !!(
+            profile.gender &&
+            profile.height &&
+            profile.weight &&
+            profile.date_of_birth &&
+            profile.goal
+          );
+          setProfileComplete(hasRequiredFields);
+          console.log('Profile check via getProfile:', hasRequiredFields);
+        } catch (fallbackError: any) {
+          console.error('Fallback profile check also failed:', fallbackError);
+          
+          // If network is completely down, check if we have cached user data
+          // If user is authenticated, allow them to proceed (they can complete profile later)
+          try {
+            const user = await AuthService.getStoredUser();
+            if (user) {
+              console.warn('Network unavailable but user is authenticated - allowing access to main app');
+              console.warn('User can complete profile later when network is available');
+              // Set to true to allow access - user can complete profile from Profile screen
+              setProfileComplete(true);
+            } else {
+              // No cached user data, default to incomplete
+              setProfileComplete(false);
+            }
+          } catch (cacheError) {
+            console.error('Error checking cached user:', cacheError);
+            // Default to incomplete if everything fails
+            setProfileComplete(false);
+          }
+        }
+      } else {
+        // For other errors, default to incomplete
+        setProfileComplete(false);
       }
     }
   };
@@ -119,6 +165,12 @@ export default function App() {
 
   const handleOnboardingComplete = async () => {
     await checkProfileComplete();
+  };
+
+  const handleSkipOnboarding = async () => {
+    // Allow user to skip onboarding and proceed to main app
+    // They can complete their profile later from the Profile screen
+    setProfileComplete(true);
   };
 
   const handleLogout = async () => {
@@ -179,7 +231,16 @@ export default function App() {
               {(props) => (
                 <OnboardingScreen
                   {...props}
-                  onComplete={() => props.navigation.navigate('GoalSelection')}
+                  onComplete={() => {
+                    // If user skips, go directly to main app
+                    // Otherwise go to goal selection
+                    const shouldSkip = (props.route.params as any)?.skip;
+                    if (shouldSkip) {
+                      handleSkipOnboarding();
+                    } else {
+                      props.navigation.navigate('GoalSelection');
+                    }
+                  }}
                 />
               )}
             </Stack.Screen>

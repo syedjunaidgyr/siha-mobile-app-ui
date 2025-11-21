@@ -43,45 +43,130 @@ try {
 
 // Get API URLs from BuildConfig (Android) or use defaults
 // BuildConfig values are set in android/app/build.gradle and can be overridden via gradle.properties
+// In development mode, we prioritize __DEV__ logic over BuildConfig for flexibility
 const DEFAULT_BACKEND_HOST = 'http://13.203.161.24';
 
-const API_BASE_URL =
-  buildConfigApiUrl ||
-  (__DEV__
-    ? Platform.select({
-        android: 'http://10.0.2.2:4000/v1',
-        ios: 'http://localhost:4000/v1',
-        default: 'http://localhost:4000/v1',
-      })!
-    : `${DEFAULT_BACKEND_HOST}:4000/v1`);
+// Helper: Determine the correct API URL based on platform and environment
+// Using AWS server at 13.203.161.24 for all platforms
+const getApiBaseUrl = () => {
+  if (!__DEV__) {
+    return buildConfigApiUrl || `${DEFAULT_BACKEND_HOST}:4000/v1`;
+  }
+  
+  // In development, use AWS server for all platforms
+  // AWS server is accessible from both emulator and physical devices
+  return `${DEFAULT_BACKEND_HOST}:4000/v1`;
+};
 
-// AI Service URL (separate microservice)
-const AI_SERVICE_URL =
-  buildConfigAiUrl ||
-  (__DEV__
-    ? Platform.select({
-        android: 'http://10.0.2.2:3001/api',
-        ios: 'http://localhost:3001/api',
-        default: 'http://localhost:3001/api',
-      })!
-    : `${DEFAULT_BACKEND_HOST}:3001/api`);
+const API_BASE_URL = getApiBaseUrl();
+
+// Helper: Determine the correct AI Service URL
+// Using AWS server at 13.203.161.24 for all platforms
+const getAiServiceUrl = () => {
+  if (!__DEV__) {
+    return buildConfigAiUrl || `${DEFAULT_BACKEND_HOST}:3001/api`;
+  }
+  
+  // In development, use AWS server for all platforms
+  // AWS server is accessible from both emulator and physical devices
+  return `${DEFAULT_BACKEND_HOST}:3001/api`;
+};
+
+const AI_SERVICE_URL = getAiServiceUrl();
 
 // Log API configuration (only once to avoid spam)
 if (__DEV__) {
   console.log('API Configuration:', {
     baseURL: API_BASE_URL,
+    aiServiceURL: AI_SERVICE_URL,
     platform: Platform.OS,
     isDev: __DEV__,
+    buildConfigApiUrl: buildConfigApiUrl || 'not set',
+    server: 'AWS (13.203.161.24)',
+    note: 'Using AWS server. Ensure server is running and security groups allow connections.',
   });
 }
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 30000, // 30 seconds for regular requests
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Separate axios instance for video analysis with longer timeout (large payloads)
+export const videoApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 120000, // 2 minutes for video analysis (large payloads)
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add auth interceptor to videoApi as well
+videoApi.interceptors.request.use(
+  async (config) => {
+    try {
+      const credentials = await Keychain.getGenericPassword();
+      if (credentials && credentials.password) {
+        config.headers.Authorization = `Bearer ${credentials.password}`;
+      }
+    } catch (error) {
+      console.error('Error getting auth token for video API:', error);
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for videoApi with better error handling
+videoApi.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.request) {
+      console.error('Video API Request Error:', {
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        method: error.config?.method,
+        message: error.message,
+        code: error.code,
+      });
+    }
+    
+    if (error.response) {
+      console.error('Video API Response Error:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+        url: error.config?.url,
+      });
+    } else if (error.request) {
+      console.error('Video API Network Error:', {
+        message: error.message,
+        code: error.code,
+        baseURL: error.config?.baseURL,
+      });
+      
+      if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
+        const baseUrl = API_BASE_URL.replace('/v1', '');
+        const port = baseUrl.split(':').pop() || '4000';
+        const serverIp = baseUrl.replace('http://', '').split(':')[0];
+        
+        console.error('Video Analysis - Network connectivity troubleshooting:');
+        console.error('Large payload may be timing out. Check:');
+        console.error('1. AWS Security Group allows port ' + port);
+        console.error('2. Server is running and accessible');
+        console.error('3. Network connection is stable');
+        console.error('4. Try reducing number of frames if issue persists');
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
@@ -133,18 +218,31 @@ api.interceptors.response.use(
       // Provide helpful diagnostic information
       if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
         const baseUrl = API_BASE_URL.replace('/v1', '');
+        const port = baseUrl.split(':').pop() || '4000';
+        const serverIp = baseUrl.replace('http://', '').split(':')[0];
+        const isAwsServer = serverIp === '13.203.161.24';
+        
         console.error('Network connectivity troubleshooting:');
-        console.error('1. Ensure backend server is running: cd backend && npm run dev');
-        console.error('2. Verify IP address matches your computer:', API_BASE_URL);
-        console.error('3. Check device is on the same WiFi network');
-        console.error('4. Try testing from terminal: curl ' + baseUrl + '/health');
-        console.error('5. If using Android Emulator, change API_BASE_URL to: http://10.0.2.2:3000/v1');
-        console.error('6. If using physical device, ensure firewall allows port 3000');
-        console.error('7. REBUILD the app after network_security_config.xml changes:');
-        console.error('   cd mobile/android && ./gradlew clean && cd ../.. && npx react-native run-android');
-        console.error('8. Alternative: Use ADB port forwarding:');
-        console.error('   adb reverse tcp:3000 tcp:3000');
-        console.error('   Then change API_BASE_URL to: http://localhost:3000/v1');
+        if (isAwsServer) {
+          console.error('AWS Server Connection Issues:');
+          console.error('1. Check AWS EC2 Security Group - ensure port ' + port + ' is open:');
+          console.error('   - Go to EC2 → Security Groups → Your instance\'s security group');
+          console.error('   - Add inbound rule: Type=Custom TCP, Port=' + port + ', Source=0.0.0.0/0');
+          console.error('2. Verify server is running on AWS:');
+          console.error('   - SSH into EC2: ssh -i your-key.pem ec2-user@' + serverIp);
+          console.error('   - Check PM2: pm2 list');
+          console.error('   - Check port: netstat -tuln | grep ' + port);
+          console.error('3. Test from your computer: curl ' + baseUrl + '/health');
+          console.error('4. Check AWS instance status in EC2 console');
+          console.error('5. Verify network security config allows cleartext (already configured)');
+        } else {
+          console.error('1. Ensure backend server is running on port ' + port);
+          console.error('2. Verify IP address matches your server:', API_BASE_URL);
+          console.error('3. Test from terminal: curl ' + baseUrl + '/health');
+          console.error('4. Check firewall allows port ' + port);
+        }
+        console.error('6. If issue persists, check device internet connectivity');
+        console.error('7. Try: ping ' + serverIp + ' (from device terminal if available)');
       }
     }
     
