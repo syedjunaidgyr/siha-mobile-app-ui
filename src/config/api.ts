@@ -20,13 +20,13 @@ const buildConfigAiUrl = BuildConfigModule?.getConstants?.()?.AI_SERVICE_URL;
 // If that doesn't work, try 10.0.2.2 (standard Android emulator host)
 // IMPORTANT: Choose the correct option based on your setup:
 // - Android Emulator: Use 'http://10.0.2.2:3000/v1'
-// - Physical Device: Use 'http://192.168.1.3:3000/v1' (your computer's IP)
+// - Physical Device: Use 'http://13.203.161.24:4000/v1' (your computer's IP)
 // - iOS Simulator: Use 'http://localhost:3000/v1'
 // - With ADB forwarding: Use 'http://localhost:3000/v1' (after running: adb reverse tcp:3000 tcp:3000)
 
 // IMPORTANT: Choose based on your setup:
 // - Android Emulator: Use 'http://10.0.2.2:3000/v1' (10.0.2.2 maps to host's localhost)
-// - Physical Android Device: Use 'http://192.168.1.3:3000/v1' (your computer's IP)
+// - Physical Android Device: Use 'http://13.203.161.24:4000/v1' (your computer's IP)
 // - iOS Simulator: Use 'http://localhost:3000/v1'
 // - With ADB forwarding: Use 'http://localhost:3000/v1' (after: adb reverse tcp:3000 tcp:3000)
 
@@ -35,21 +35,21 @@ const buildConfigAiUrl = BuildConfigModule?.getConstants?.()?.AI_SERVICE_URL;
 const API_BASE_URL = buildConfigApiUrl || (
   __DEV__
     ? (Platform.OS === 'android' 
-        // ? 'http://192.168.1.3:3000/v1'  // Physical Device - your computer's IP address
+        // ? 'http://13.203.161.24:4000/v1'  // Physical Device - your computer's IP address
         // ? 'http://10.0.2.2:3000/v1'  // Android Emulator - uncomment if using emulator
-        ? 'http://192.168.1.3:3000/v1'  // ADB port forwarding - uncomment if using: adb reverse tcp:3000 tcp:3000
+        ? 'http://13.203.161.24:4000/v1'  // ADB port forwarding - uncomment if using: adb reverse tcp:3000 tcp:3000
         : 'http://localhost:3000/v1')  // iOS Simulator
-    : 'http://192.168.1.3:3000/v1'
+    : 'http://13.203.161.24:4000/v1'
 );
 
 // AI Service URL (separate microservice)
 const AI_SERVICE_URL = buildConfigAiUrl || (
   __DEV__
     ? (Platform.OS === 'android'
-        // ? 'http://192.168.1.3:3001/api' 
-         ? 'http://192.168.1.3:3001/api'  // Physical Device
+        // ? 'http://13.203.161.24:3001/api' 
+         ? 'http://13.203.161.24:3001/api'  // Physical Device
         : 'http://localhost:3001/api')  // iOS Simulator
-    : 'http://192.168.1.3:3000/api'
+    : 'http://13.203.161.24:4000/api'
 );
 
 // Log API configuration (only once to avoid spam)
