@@ -31,23 +31,23 @@ try {
 // If that doesn't work, try 10.0.2.2 (standard Android emulator host)
 // IMPORTANT: Choose the correct option based on your setup:
 // - Android Emulator: Use 'http://10.0.2.2:3000/v1'
-// - Physical Device: Use 'http://192.168.0.101:4000/v1' (your computer's IP)
+// - Physical Device: Use 'http://13.203.161.24:4000/v1' (your computer's IP)
 // - iOS Simulator: Use 'http://localhost:3000/v1'
 // - With ADB forwarding: Use 'http://localhost:3000/v1' (after running: adb reverse tcp:3000 tcp:3000)
 
 // IMPORTANT: Choose based on your setup:
 // - Android Emulator: Use 'http://10.0.2.2:3000/v1' (10.0.2.2 maps to host's localhost)
-// - Physical Android Device: Use 'http://192.168.0.101:4000/v1' (your computer's IP)
+// - Physical Android Device: Use 'http://13.203.161.24:4000/v1' (your computer's IP)
 // - iOS Simulator: Use 'http://localhost:3000/v1'
 // - With ADB forwarding: Use 'http://localhost:3000/v1' (after: adb reverse tcp:3000 tcp:3000)
 
 // Get API URLs from BuildConfig (Android) or use defaults
 // BuildConfig values are set in android/app/build.gradle and can be overridden via gradle.properties
 // In development mode, we prioritize __DEV__ logic over BuildConfig for flexibility
-const DEFAULT_BACKEND_HOST = 'http://192.168.0.101';
+const DEFAULT_BACKEND_HOST = 'http://13.203.161.24';
 
 // Helper: Determine the correct API URL based on platform and environment
-// Using AWS server at 192.168.0.101 for all platforms
+// Using AWS server at 13.203.161.24 for all platforms
 const getApiBaseUrl = () => {
   if (!__DEV__) {
     return buildConfigApiUrl || `${DEFAULT_BACKEND_HOST}:4000/v1`;
@@ -61,7 +61,7 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // Helper: Determine the correct AI Service URL
-// Using AWS server at 192.168.0.101 for all platforms
+// Using AWS server at 13.203.161.24 for all platforms
 const getAiServiceUrl = () => {
   if (!__DEV__) {
     return buildConfigAiUrl || `${DEFAULT_BACKEND_HOST}:3001/api`;
@@ -82,7 +82,7 @@ if (__DEV__) {
     platform: Platform.OS,
     isDev: __DEV__,
     buildConfigApiUrl: buildConfigApiUrl || 'not set',
-    server: 'AWS (192.168.0.101)',
+    server: 'AWS (13.203.161.24)',
     note: 'Using AWS server. Ensure server is running and security groups allow connections.',
   });
 }
@@ -220,7 +220,7 @@ api.interceptors.response.use(
         const baseUrl = API_BASE_URL.replace('/v1', '');
         const port = baseUrl.split(':').pop() || '4000';
         const serverIp = baseUrl.replace('http://', '').split(':')[0];
-        const isAwsServer = serverIp === '192.168.0.101';
+        const isAwsServer = serverIp === '13.203.161.24';
         
         console.error('Network connectivity troubleshooting:');
         if (isAwsServer) {

@@ -41,8 +41,8 @@ android {
         
         // API URL configuration - can be overridden via gradle.properties
         // Set API_BASE_URL in gradle.properties or use default
-        def apiBaseUrl = project.findProperty('API_BASE_URL') ?: 'http://192.168.0.101:4000/v1'
-        def aiServiceUrl = project.findProperty('AI_SERVICE_URL') ?: 'http://192.168.0.101:4000/api'
+        def apiBaseUrl = project.findProperty('API_BASE_URL') ?: 'http://13.203.161.24:4000/v1'
+        def aiServiceUrl = project.findProperty('AI_SERVICE_URL') ?: 'http://13.203.161.24:4000/api'
         
         buildConfigField "String", "API_BASE_URL", "\"${apiBaseUrl}\""
         buildConfigField "String", "AI_SERVICE_URL", "\"${aiServiceUrl}\""
@@ -75,8 +75,8 @@ android {
         debug {
             signingConfig signingConfigs.debug
             // Use dev API URLs in debug builds
-            buildConfigField "String", "API_BASE_URL", "\"http://192.168.0.101:4000/v1\""
-            buildConfigField "String", "AI_SERVICE_URL", "\"http://192.168.0.101:3001/api\""
+            buildConfigField "String", "API_BASE_URL", "\"http://13.203.161.24:4000/v1\""
+            buildConfigField "String", "AI_SERVICE_URL", "\"http://13.203.161.24:3001/api\""
         }
         release {
             // Caution! In production, you need to generate your own keystore file.
@@ -88,8 +88,8 @@ android {
             
             // Release builds use defaultConfig values (can be overridden via gradle.properties)
             // To use dev server for testing, add to gradle.properties:
-            // API_BASE_URL=http://192.168.0.101:4000/v1
-            // AI_SERVICE_URL=http://192.168.0.101:3001/api
+            // API_BASE_URL=http://13.203.161.24:4000/v1
+            // AI_SERVICE_URL=http://13.203.161.24:3001/api
         }
     }
     

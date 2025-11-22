@@ -25,8 +25,8 @@ When building a release APK, the app tries to connect to the production API URL 
    
    Example:
    ```properties
-   API_BASE_URL=http://192.168.0.101:4000/v1
-   AI_SERVICE_URL=http://192.168.0.101:3001/api
+   API_BASE_URL=http://13.203.161.24:4000/v1
+   AI_SERVICE_URL=http://13.203.161.24:3001/api
    ```
 
 3. **Make sure your backend server is running:**
@@ -79,7 +79,7 @@ If you have a production API server:
 
 The app now reads API URLs from Android's `BuildConfig`, which is set during the build process:
 
-- **Debug builds**: Always use development URLs (`http://192.168.0.101:4000/v1`)
+- **Debug builds**: Always use development URLs (`http://13.203.161.24:4000/v1`)
 - **Release builds**: Use URLs from `gradle.properties` if set, otherwise use production URLs
 
 The configuration is read from:

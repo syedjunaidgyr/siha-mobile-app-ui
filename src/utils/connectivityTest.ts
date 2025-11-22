@@ -7,7 +7,7 @@ import api from '../config/api';
 export async function testBackendConnection(): Promise<boolean> {
   try {
     // Extract base URL from api instance (remove /v1 suffix)
-    const baseUrl = api.defaults.baseURL?.replace('/v1', '') || 'http://192.168.0.101:4000';
+    const baseUrl = api.defaults.baseURL?.replace('/v1', '') || 'http://13.203.161.24:4000';
     const response = await fetch(`${baseUrl}/health`, {
       method: 'GET',
       headers: {
@@ -55,7 +55,7 @@ export async function testAPIConnection(): Promise<boolean> {
  */
 export async function testDirectConnection(): Promise<boolean> {
   try {
-    const baseUrl = api.defaults.baseURL?.replace('/v1', '') || 'http://192.168.0.101:4000';
+    const baseUrl = api.defaults.baseURL?.replace('/v1', '') || 'http://13.203.161.24:4000';
     console.log('Testing direct connection to:', baseUrl);
     
     const response = await fetch(`${baseUrl}/health`, {
