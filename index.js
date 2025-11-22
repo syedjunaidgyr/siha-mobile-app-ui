@@ -16,28 +16,9 @@ import {ErrorBoundary} from './src/components/ErrorBoundary';
 // Note: Global error handler removed as ErrorUtils may not be available in all React Native builds
 // ErrorBoundary component below will handle React component errors
 
-// Ensure frame processor global is set up at app root
-// This ensures it's available even if React Native wipes globals on reload
-try {
-  const { processFrameToJS } = require('./src/services/cameraService');
-  if (typeof global !== 'undefined') {
-    // @ts-ignore
-    global.__runOnJSProcessFrameToJS = (pixelBuffer, w, h, pf) => {
-      // call the exported function (it's async) but we don't await in this wrapper
-      // any errors will be logged by processFrameToJS
-      try {
-        processFrameToJS(pixelBuffer, w, h, pf).catch((err) => {
-          console.error('[index.js] processFrameToJS error:', err);
-        });
-      } catch (err) {
-        console.error('[index.js] Error calling processFrameToJS:', err);
-      }
-    };
-    console.log('[index.js] Frame processor global function registered');
-  }
-} catch (err) {
-  console.warn('[index.js] Failed to import cameraService (this is OK if camera features are not used):', err);
-}
+// NOTE: We no longer set up global function for frame processor
+// processFrameToJS is now passed directly via useFrameProcessor dependency array in VitalsScreen
+// This is the correct approach as worklets can't access global on Android
 
 // Wrap App with ErrorBoundary to catch any React errors
 const AppWithErrorBoundary = () => (

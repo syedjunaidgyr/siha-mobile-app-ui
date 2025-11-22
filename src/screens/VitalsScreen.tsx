@@ -1,5 +1,10 @@
 // src/screens/VitalsScreen.tsx
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -8,19 +13,40 @@ import {
   Alert,
   Dimensions,
   Platform,
-  Linking,
   ScrollView,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Camera as CameraIcon, Heart, Activity, Wind, AlertCircle, Droplet, Thermometer } from 'lucide-react-native';
-import { Camera, useCameraDevice } from 'react-native-vision-camera';
-import { useCameraCapture, stopFrameCapture } from '../services/cameraService';
-import { VitalSignsService, VitalSigns, FaceAnalysisResult } from '../services/vitalSignsService';
+import {
+  Camera as CameraIcon,
+  Heart,
+  Activity,
+  Wind,
+  AlertCircle,
+  Droplet,
+  Thermometer,
+} from 'lucide-react-native';
+import {
+  Camera,
+  useCameraDevice,
+} from 'react-native-vision-camera';
+
+import { useCameraCapture } from '../services/cameraService';
+import {
+  VitalSignsService,
+  VitalSigns,
+  FaceAnalysisResult,
+} from '../services/vitalSignsService';
 import { AuthService } from '../services/authService';
 import SensorService, { SensorData } from '../services/sensorService';
 import { Card3D, VitalCard3D } from '../components/3D';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, interpolate } from 'react-native-reanimated';
-import { Svg, Path, Circle, Line, Ellipse } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
+import { Svg, Ellipse } from 'react-native-svg';
 import { Colors, Typography, TextStyles } from '../theme';
 import { ScreenBackground } from '../components/ui/ScreenBackground';
 
@@ -28,11 +54,10 @@ const { width } = Dimensions.get('window');
 const RESULTS_HORIZONTAL_MARGIN = 20;
 const CARD_PADDING = 20;
 const GRID_GAP = 16;
-const GRID_WIDTH = width - (RESULTS_HORIZONTAL_MARGIN * 2);
-const INNER_GRID_WIDTH = GRID_WIDTH - (CARD_PADDING * 2);
+const GRID_WIDTH = width - RESULTS_HORIZONTAL_MARGIN * 2;
+const INNER_GRID_WIDTH = GRID_WIDTH - CARD_PADDING * 2;
 const CARD_WIDTH = Math.floor((INNER_GRID_WIDTH - GRID_GAP) / 2);
 
-// Vital sign colors for consistency
 const VITAL_COLORS = {
   heartRate: Colors.danger,
   stressLevel: Colors.accentTertiary,
@@ -47,57 +72,47 @@ interface VitalCardEntry {
   element: React.ReactNode;
 }
 
+// Video-based capture - no frame session needed
+
 export default function VitalsScreen() {
   const navigation = useNavigation();
-  
+
   // UI & state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<FaceAnalysisResult | null>(null);
   const [vitals, setVitals] = useState<VitalSigns | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0); // in seconds
-  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0); // in milliseconds for smooth progress
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [hasPermission, setHasPermission] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [faceDetected, setFaceDetected] = useState<boolean | null>(null);
   const [sensorData, setSensorData] = useState<SensorData | null>(null);
-  const [sensorStatus, setSensorStatus] = useState<{ isGood: boolean; reasons: string[]; score: number } | null>(null);
+  const [sensorStatus, setSensorStatus] = useState<{
+    isGood: boolean;
+    reasons: string[];
+    score: number;
+  } | null>(null);
 
-  // camera device & refs
+  // Camera device
   const deviceFront = useCameraDevice('front');
   const deviceBack = useCameraDevice('back');
   const device = deviceFront ?? deviceBack ?? null;
 
-  // hook from cameraService
-  const {
-    cameraRef: cameraServiceRef,
-    startCaptureWithProcessor,
-    stopCapture,
-    captureLegacy,
-    captureSingle,
-    isFrameCaptureActive,
-  } = useCameraCapture();
+  // Camera service hook - video recording
+  const { cameraRef, recordVideo } = useCameraCapture();
 
-  // We also keep a local ref to the Camera component so VisionCamera can mount
-  const cameraRef = useRef<Camera | null>(null);
+  // Timer ref
+  const timerRef = useRef<number | null>(null);
 
-  // Provide cameraRef to service hook
-  useEffect(() => {
-    // Keep cameraServiceRef in sync with component cameraRef
-    if (cameraServiceRef && 'current' in cameraServiceRef) {
-      (cameraServiceRef as any).current = cameraRef.current;
-    }
-  }, [cameraRef, cameraServiceRef]);
-
-
-  // Permissions: check and request on mount
+  // --- Permission setup ---
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const status = await Camera.getCameraPermissionStatus();
         if (!mounted) return;
+
         if (status === 'granted') {
           setHasPermission(true);
         } else {
@@ -109,211 +124,137 @@ export default function VitalsScreen() {
         setHasPermission(false);
       }
     })();
-    return () => { mounted = false; };
-  }, []);
 
-  // camera ready tracking
-  useEffect(() => {
-    const ready = hasPermission && device !== null;
-    setCameraReady(ready);
-    if (!ready) return;
-    setCameraError(null);
-    
-    // Debug: Log camera render state
-    console.log('CAMERA_RENDER_DEBUG', {
-      hasPermission,
-      device: !!device,
-      cameraReady: ready,
-      deviceId: device?.id,
-    });
-  }, [hasPermission, device]);
-
-  // timer for recording UI
-  const timerRef = useRef<number | null>(null);
-  useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      mounted = false;
     };
   }, []);
 
-  // Sensor monitoring - reduced frequency to improve performance
+  // --- Sensor monitoring (for motion/noise gating) ---
   useEffect(() => {
     let sensorUnsubscribe: (() => void) | null = null;
-    let statusUpdateInterval: NodeJS.Timeout | null = null;
-    
-    const setupSensors = async () => {
+    let statusInterval: NodeJS.Timeout | null = null;
+
+    const setup = async () => {
       try {
-        await SensorService.startMonitoring(200); // Update every 200ms (reduced from 100ms)
-        
-        sensorUnsubscribe = SensorService.addListener((data) => {
+        await SensorService.startMonitoring(200);
+        sensorUnsubscribe = SensorService.addListener(data => {
           setSensorData(data);
         });
-        
-        // Update sensor status less frequently (every 500ms) to reduce re-renders
-        statusUpdateInterval = setInterval(() => {
+        statusInterval = setInterval(() => {
           const status = SensorService.isGoodForVitalSigns();
           setSensorStatus(status);
         }, 500);
-      } catch (error) {
-        console.warn('Sensor monitoring not available:', error);
+      } catch (e) {
+        console.warn('Sensor monitoring not available:', e);
       }
     };
-    
-    setupSensors();
-    
+
+    setup();
+
     return () => {
-      if (sensorUnsubscribe) {
-        sensorUnsubscribe();
-      }
-      if (statusUpdateInterval) {
-        clearInterval(statusUpdateInterval);
-      }
+      if (sensorUnsubscribe) sensorUnsubscribe();
+      if (statusInterval) clearInterval(statusInterval);
       SensorService.stopMonitoring();
     };
   }, []);
 
-  // Internal function to start analysis
+  // Video-based capture - no frame processor needed
+
+  // --- Recording timer cleanup ---
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, []);
+
+  // --- Start analysis flow (video-based) ---
   const startAnalysisInternal = useCallback(async () => {
     try {
-      // Start UI state immediately for responsive feel
+      if (isRecording || isAnalyzing) return;
+
       setIsRecording(true);
       setRecordingTime(0);
       setRecordingElapsedMs(0);
       setAnalysisResult(null);
       setVitals(null);
       setFaceDetected(null);
-      
-      // Defer heavy operations
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // ensure permission & device
+
+      // Permissions
       const perm = await Camera.getCameraPermissionStatus();
       if (perm !== 'granted') {
         const newPerm = await Camera.requestCameraPermission();
         if (newPerm !== 'granted') {
           setIsRecording(false);
-          Alert.alert('Camera Permission Required', 'Please grant camera permission in settings.');
+          Alert.alert(
+            'Camera Permission Required',
+            'Please grant camera permission in settings.'
+          );
           return;
         }
       }
       if (!device) {
         setIsRecording(false);
-        Alert.alert('Camera not available', 'No camera device found on this device.');
+        Alert.alert(
+          'Camera not available',
+          'No camera device found on this device.'
+        );
         return;
       }
 
-      // Activate camera view (VisionCamera component uses isActive prop)
-      setCameraReady(true);
+      if (!cameraRef.current) {
+        setIsRecording(false);
+        Alert.alert(
+          'Camera not ready',
+          'Please wait for the camera to initialize.'
+        );
+        return;
+      }
 
-      // Use takePhoto() method - more reliable than frame processor
+      console.log('[VitalsScreen] Starting 30-second video recording...');
+
       const durationMs = 30000; // 30 seconds
-      const frameIntervalMs = 100; // Capture every 100ms = ~10 FPS (better for accurate analysis)
-      let capturedFrames: string[] = [];
 
-      // Get sensor data for this recording session
-      const currentSensorData = SensorService.getCurrentData();
-      
-      // Start timer that updates every 250ms (reduced from 100ms to improve performance)
+      // Timer UI
       const startTs = Date.now();
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - startTs;
-        const elapsedSeconds = Math.min(30, Math.floor(elapsed / 1000)); // Cap at 30 seconds
-        setRecordingTime(elapsedSeconds);
-        setRecordingElapsedMs(Math.min(durationMs, elapsed)); // Cap at 30 seconds in ms
-        
-        // Auto-stop timer and capture when we reach 30 seconds (100%)
+        const seconds = Math.min(30, Math.floor(elapsed / 1000));
+        setRecordingTime(seconds);
+        setRecordingElapsedMs(Math.min(durationMs, elapsed));
+
         if (elapsed >= durationMs) {
           if (timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
           }
-          setRecordingTime(30); // Ensure it's exactly 30
-          setRecordingElapsedMs(durationMs); // Ensure it's exactly 30000ms
-          setIsRecording(false); // Stop recording UI immediately
-          
-          // Stop the capture if it's still running
-          if (isFrameCaptureActive()) {
-            console.log('[VitalsScreen] Stopping capture at 100% completion');
-            stopFrameCapture();
-          }
+          setRecordingTime(30);
+          setRecordingElapsedMs(durationMs);
         }
-      }, 250) as unknown as number; // Reduced from 100ms to 250ms for better performance
+      }, 250) as unknown as number;
 
-      try {
-        console.log('[VitalsScreen] Starting photo capture...');
-        console.log('[VitalsScreen] Sensor conditions:', SensorService.isGoodForVitalSigns());
-        // Use takePhoto() method which works reliably on all devices
-        capturedFrames = await captureLegacy(durationMs, frameIntervalMs);
-        console.log(`[VitalsScreen] Captured ${capturedFrames.length} frames`);
-      } catch (captureErr) {
-        console.error('[VitalsScreen] Capture failed:', captureErr);
-        Alert.alert('Capture Error', 'Failed to capture frames. Please try again.');
-        return;
-      } finally {
-        // Always stop the UI timer and recording state
+      // Record video
+      const videoResult = await recordVideo(durationMs);
+      
+      // Stop timer
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
-        // Ensure recordingTime is exactly 30 when capture completes
-        setRecordingTime(30);
-        setRecordingElapsedMs(durationMs);
       setIsRecording(false);
-      }
 
-      if (!capturedFrames || capturedFrames.length === 0) {
-        Alert.alert('No frames captured', 'Please ensure your face is visible and try again.');
-        return;
-      }
+      console.log(`[VitalsScreen] Video recorded: ${videoResult.path}, size: ${(videoResult.fileSize / (1024 * 1024)).toFixed(2)} MB`);
 
-      // Show results immediately, defer heavy operations
-      setIsAnalyzing(true);
-      
-      // Defer analysis to next frame to keep UI responsive
-      requestAnimationFrame(async () => {
-        try {
-          const result = await VitalSignsService.analyzeFaceFromFrames(capturedFrames);
-
-          console.log('[VitalsScreen] Analysis result:', JSON.stringify(result, null, 2));
-          console.log('[VitalsScreen] Vitals to display:', JSON.stringify(result.vitals, null, 2));
-
-          setAnalysisResult(result);
-          setVitals(result.vitals ?? null);
-
-          // Defer save operation to avoid blocking UI
-          setTimeout(async () => {
-            // Save if valid
-            const user = await AuthService.getStoredUser();
-            if (user && result.vitals && result.faceDetected) {
-              try {
-                await VitalSignsService.saveVitalSigns(user.id, result.vitals);
-                console.log('[VitalsScreen] Vital signs saved successfully');
-                Alert.alert('Success', 'Vital signs recorded successfully!');
-                
-                // Notify navigation that data has been updated (for dashboard/history refresh)
-                // This will trigger a refresh when user navigates back
-                navigation.setParams({ refresh: Date.now() } as any);
-              } catch (saveError: any) {
-                console.error('[VitalsScreen] Error saving vital signs:', saveError);
-                Alert.alert('Save Error', 'Vital signs were analyzed but could not be saved. Please try again.');
-              }
-            } else if (!result.faceDetected) {
-              Alert.alert('No face detected', 'We could not detect a face in the recording. Try again with better lighting and center your face.');
-            }
-          }, 100);
-        } catch (analysisError: any) {
-          console.error('[VitalsScreen] Analysis error:', analysisError);
-          Alert.alert('Analysis Error', analysisError?.message ?? 'Unknown error during analysis');
-          setIsAnalyzing(false);
-          setIsRecording(false);
-        } finally {
-          setIsAnalyzing(false);
-          setIsRecording(false);
-        }
-      });
+      // Analyze video
+      await analyzeVideo(videoResult.path);
     } catch (err: any) {
-      console.error('startAnalysis error', err);
-      Alert.alert('Analysis Error', err?.message ?? 'Unknown error during analysis');
+      console.error('startAnalysisInternal error', err);
+      Alert.alert(
+        'Recording Error',
+        err?.message ?? 'Failed to record video. Please ensure your face is visible and try again.'
+      );
       setIsRecording(false);
       setIsAnalyzing(false);
       if (timerRef.current) {
@@ -321,18 +262,85 @@ export default function VitalsScreen() {
         timerRef.current = null;
       }
     }
-  }, [device, captureLegacy]);
+  }, [device, isRecording, isAnalyzing, recordVideo, cameraRef]);
 
-  // Start full analysis flow (30s capture -> send to backend -> show results)
-  const startAnalysis = useCallback(async () => {
-    // Defer sensor check to avoid blocking UI
+  // --- Analyze video file via backend service ---
+  const analyzeVideo = useCallback(
+    async (videoPath: string) => {
+      if (!videoPath) {
+        Alert.alert(
+          'No video recorded',
+          'Please ensure your face is visible and try again.'
+        );
+        return;
+      }
+
+      setIsAnalyzing(true);
+
+      try {
+        const result = await VitalSignsService.analyzeVideoFile(videoPath);
+
+        console.log(
+          '[VitalsScreen] Analysis result:',
+          JSON.stringify(result, null, 2)
+        );
+        console.log(
+          '[VitalsScreen] Vitals to display:',
+          JSON.stringify(result.vitals, null, 2)
+        );
+
+        setAnalysisResult(result);
+        setVitals(result.vitals ?? null);
+
+        setTimeout(async () => {
+          const user = await AuthService.getStoredUser();
+          if (user && result.vitals && result.faceDetected) {
+            try {
+              await VitalSignsService.saveVitalSigns(user.id, result.vitals);
+              console.log('[VitalsScreen] Vital signs saved successfully');
+              Alert.alert('Success', 'Vital signs recorded successfully!');
+              navigation.setParams({ refresh: Date.now() } as any);
+            } catch (saveError: any) {
+              console.error(
+                '[VitalsScreen] Error saving vital signs:',
+                saveError
+              );
+              Alert.alert(
+                'Save Error',
+                'Vital signs were analyzed but could not be saved. Please try again.'
+              );
+            }
+          } else if (!result.faceDetected) {
+            Alert.alert(
+              'No face detected',
+              'We could not detect a face in the recording. Try again with better lighting and center your face.'
+            );
+          }
+        }, 100);
+      } catch (err: any) {
+        console.error('[VitalsScreen] Analysis error:', err);
+        Alert.alert(
+          'Analysis Error',
+          err?.message ?? 'Unknown error during analysis'
+        );
+      } finally {
+        setIsAnalyzing(false);
+        setIsRecording(false);
+      }
+    },
+    [navigation]
+  );
+
+  // --- Sensor pre-check wrapper ---
+  const startAnalysis = useCallback(() => {
     requestAnimationFrame(async () => {
-      // Check sensor conditions first
       const sensorCheck = SensorService.isGoodForVitalSigns();
       if (!sensorCheck.isGood && sensorCheck.score < 50) {
         Alert.alert(
           'Poor Conditions Detected',
-          `Please improve conditions:\n${sensorCheck.reasons.join('\n')}\n\nScore: ${sensorCheck.score}/100`,
+          `Please improve conditions:\n${sensorCheck.reasons.join(
+            '\n'
+          )}\n\nScore: ${sensorCheck.score}/100`,
           [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Continue Anyway', onPress: () => startAnalysisInternal() },
@@ -340,21 +348,12 @@ export default function VitalsScreen() {
         );
         return;
       }
-
       await startAnalysisInternal();
     });
   }, [startAnalysisInternal]);
 
+  // --- Manual stop (stop recording early) ---
   const stopAnalysis = useCallback(() => {
-    // Force stop if running
-    try {
-      if (isFrameCaptureActive()) {
-        const frames = stopFrameCapture();
-        console.log('Stopped capture, frames:', frames.length);
-      }
-    } catch (e) {
-      console.warn('stopFrameCapture error', e);
-    }
     setIsRecording(false);
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -362,21 +361,14 @@ export default function VitalsScreen() {
     }
     setRecordingTime(0);
     setRecordingElapsedMs(0);
-  }, [isFrameCaptureActive]);
+    // Note: Video recording will stop automatically when duration is reached
+    // For early stop, we'd need to add stopRecording to cameraService
+  }, []);
 
-  // Camera component ref handler
-  const handleCameraRef = useCallback((c: Camera | null) => {
-    cameraRef.current = c;
-    if (cameraServiceRef && 'current' in cameraServiceRef) {
-      (cameraServiceRef as any).current = c;
-    }
-  }, [cameraServiceRef]);
-
-  // Disable back button during recording or analysis
+  // --- Disable back during recording/analyzing ---
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+    const unsubscribe = navigation.addListener('beforeRemove', e => {
       if (isRecording || isAnalyzing) {
-        // Prevent default behavior of leaving the screen
         e.preventDefault();
         Alert.alert(
           'Recording in Progress',
@@ -389,7 +381,6 @@ export default function VitalsScreen() {
     return unsubscribe;
   }, [navigation, isRecording, isAnalyzing]);
 
-  // Update navigation options to disable back button during recording/analyzing
   useEffect(() => {
     navigation.setOptions({
       gestureEnabled: !isRecording && !isAnalyzing,
@@ -397,9 +388,8 @@ export default function VitalsScreen() {
     });
   }, [navigation, isRecording, isAnalyzing]);
 
-  // Simplified animated scanning bar - removed complex animation to reduce lag
+  // --- Scanning animation ---
   const scanProgress = useSharedValue(0);
-  
   useEffect(() => {
     if (isRecording) {
       scanProgress.value = withRepeat(
@@ -410,21 +400,36 @@ export default function VitalsScreen() {
     } else {
       scanProgress.value = 0;
     }
-  }, [isRecording]);
+  }, [isRecording, scanProgress]);
 
   const scanBarStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(scanProgress.value, [0, 1], [0, (width - 48) * 0.8]);
+    const translateY = interpolate(
+      scanProgress.value,
+      [0, 1],
+      [0, (width - 48) * 0.8]
+    );
     return {
       transform: [{ translateY }],
     };
   }, []);
 
-  // Calculate progress percentage based on elapsed milliseconds for smooth updates
-  const progressPercentage = Math.min(100, Math.max(0, Math.round((recordingElapsedMs / 30000) * 100)));
+  const progressPercentage = Math.min(
+    100,
+    Math.max(0, Math.round((recordingElapsedMs / 30000) * 100))
+  );
 
-  // Render
-  const shouldRenderCamera = hasPermission && device && !vitals;
+  const shouldRenderCamera = hasPermission && !!device;
 
+  const handleCameraRef = useCallback(
+    (c: Camera | null) => {
+      // Keep the ref in sync with the cameraService hook
+      // @ts-ignore
+      cameraRef.current = c;
+    },
+    [cameraRef]
+  );
+
+  // --- Render ---
   return (
     <ScreenBackground>
       <ScrollView
@@ -432,43 +437,52 @@ export default function VitalsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-      <View style={styles.header}>
+        <View style={styles.header}>
           <View style={styles.headerContent}>
             <Text style={styles.title}>AI Vital Signs</Text>
-        <Text style={styles.subtitle}>
-          Position your face in front of the camera for 30 seconds
-        </Text>
+            <Text style={styles.subtitle}>
+              Position your face in front of the camera for 30 seconds
+            </Text>
           </View>
-      </View>
+        </View>
 
-      <View style={styles.cameraContainer}>
-        {shouldRenderCamera ? (
+        <View style={styles.cameraContainer}>
+          {shouldRenderCamera ? (
             <>
               {device && (
-          <Camera
-            ref={handleCameraRef}
-            style={StyleSheet.absoluteFill}
-            device={device}
-                  isActive={cameraReady && !vitals}
-            photo={true}
+                <Camera
+                  ref={handleCameraRef}
+                  style={StyleSheet.absoluteFill}
+                  device={device}
+                  isActive={true} // keep always active on this screen
+                  photo={true}
+                  video={true}
                   enableZoomGesture={false}
-            onError={(err) => {
-              console.error('Camera error', err);
+                  onInitialized={() => {
+                    console.log('[VitalsScreen] Camera initialized and ready');
+                  }}
+                  onError={err => {
+                    console.error('Camera error', err);
                     const errorMessage = err?.message ?? 'Unknown camera error';
                     setCameraError(errorMessage);
-                    // Don't show alert for configuration errors during initialization
-                    // These can happen when the camera is still initializing
-                    if (!errorMessage.includes('invalid-output-configuration') && 
-                        !errorMessage.includes('session')) {
+                    if (
+                      !errorMessage.includes('invalid-output-configuration') &&
+                      !errorMessage.includes('session') &&
+                      !errorMessage.includes('frame-processors-unavailable')
+                    ) {
                       Alert.alert('Camera Error', errorMessage);
                     }
                   }}
                 />
               )}
-              
-              {/* Face outline oval */}
+
+              {/* Face outline */}
               <View style={styles.faceOutline}>
-                <Svg width={width - 40} height={(width - 40) * 0.8} style={StyleSheet.absoluteFill}>
+                <Svg
+                  width={width - 40}
+                  height={(width - 40) * 0.8}
+                  style={StyleSheet.absoluteFill}
+                >
                   <Ellipse
                     cx={(width - 40) / 2}
                     cy={((width - 40) * 0.8) / 2}
@@ -476,204 +490,273 @@ export default function VitalsScreen() {
                     ry={((width - 40) * 0.8) * 0.35}
                     fill="none"
                     stroke={Colors.accent}
-                    strokeWidth="2"
+                    strokeWidth={2}
                     strokeDasharray="8 4"
                   />
                 </Svg>
               </View>
 
-              {/* Simplified scanning visualization - only show scanning bar */}
               {isRecording && (
                 <Animated.View style={[styles.scanBar, scanBarStyle]}>
                   <View style={styles.scanBarLine} />
                 </Animated.View>
               )}
 
-              {/* Recording overlay with progress */}
               {isRecording && (
                 <View style={styles.recordingOverlay}>
                   <View style={styles.recordingContent}>
                     <Text style={styles.scanningText}>Scanning..</Text>
                     <View style={styles.progressBarContainer}>
-                      <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          { width: `${progressPercentage}%` },
+                        ]}
+                      />
                     </View>
-                    <Text style={styles.progressText}>{progressPercentage}%</Text>
+                    <Text style={styles.progressText}>
+                      {progressPercentage}%
+                    </Text>
                   </View>
                 </View>
               )}
-
             </>
-        ) : (
-          <View style={styles.placeholderCamera}>
+          ) : (
+            <View style={styles.placeholderCamera}>
               <View style={styles.placeholderIconContainer}>
                 <CameraIcon size={64} color={Colors.accent} />
               </View>
-            <Text style={styles.placeholderText}>
-              {!hasPermission ? 'Camera permission required' : !device ? 'Camera device not available' : 'Ready to analyze'}
-            </Text>
-
-            {!hasPermission && (
-              <TouchableOpacity
-                style={styles.permissionButton}
-                onPress={async () => {
-                  const res = await Camera.requestCameraPermission();
-                  setHasPermission(res === 'granted');
-                  if (res !== 'granted') {
-                    Alert.alert('Permission denied', 'Please allow camera permission in settings.');
-                  }
-                }}
-              >
-                <Text style={styles.permissionButtonText}>Grant Camera Permission</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </View>
-
-      {vitals && (
-        <View style={styles.resultsWrapper}>
-          <Card3D depth={16} style={styles.resultsContainer}>
-            <View style={styles.resultsHeader}>
-              <Text style={styles.resultsTitle}>Vital Signs Detected</Text>
-              <View style={styles.resultsBadge}>
-                <Text style={styles.resultsBadgeText}>✓ Complete</Text>
-              </View>
-            </View>
-            <View style={styles.vitalsGrid}>
-              {chunkVitalCards(renderVitalCards(vitals)).map((row, rowIndex) => (
-                <View key={`row-${rowIndex}`} style={styles.vitalsRow}>
-                  {row.map((card) => (
-                    <View key={card.key} style={styles.vitalCardItem}>
-                      {card.element}
-                    </View>
-                  ))}
-                  {row.length === 1 && (
-                    <View style={[styles.vitalCardItem, styles.vitalCardPlaceholder]} />
-                  )}
-                </View>
-              ))}
-            </View>
-
-          {vitals.confidence !== undefined && (
-            <View style={styles.confidenceContainer}>
-                <View style={styles.confidenceHeader}>
-                  <Text style={styles.confidenceLabel}>Analysis Confidence</Text>
-                  <Text style={styles.confidenceValue}>
-                    {Math.round((typeof vitals.confidence === 'string' ? parseFloat(vitals.confidence) : vitals.confidence ?? 0) * 100)}%
+              <Text style={styles.placeholderText}>
+                {!hasPermission
+                  ? 'Camera permission required'
+                  : !device
+                  ? 'Camera device not available'
+                  : 'Ready to analyze'}
               </Text>
-                </View>
-              <View style={styles.confidenceBar}>
-                  <View style={[styles.confidenceFill, { width: `${(typeof vitals.confidence === 'string' ? parseFloat(vitals.confidence) : vitals.confidence ?? 0) * 100}%` }]} />
-              </View>
+
+              {!hasPermission && (
+                <TouchableOpacity
+                  style={styles.permissionButton}
+                  onPress={async () => {
+                    const res = await Camera.requestCameraPermission();
+                    setHasPermission(res === 'granted');
+                    if (res !== 'granted') {
+                      Alert.alert(
+                        'Permission denied',
+                        'Please allow camera permission in settings.'
+                      );
+                    }
+                  }}
+                >
+                  <Text style={styles.permissionButtonText}>
+                    Grant Camera Permission
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
-          </Card3D>
         </View>
-      )}
 
-      <View style={styles.actionsContainer}>
-        {!isRecording && !isAnalyzing && !vitals && (
-          <TouchableOpacity
-            style={[styles.button, styles.primaryButton, (!hasPermission || !!cameraError) && styles.buttonDisabled]}
-            onPress={() => startAnalysis()}
-            disabled={!hasPermission || !!cameraError}
-          >
-            <CameraIcon size={20} color={Colors.background} />
-            <Text style={styles.buttonText}>Start Analysis</Text>
-          </TouchableOpacity>
-        )}
+        {vitals && (
+          <View style={styles.resultsWrapper}>
+            <Card3D depth={16} style={styles.resultsContainer}>
+              <View style={styles.resultsHeader}>
+                <Text style={styles.resultsTitle}>Vital Signs Detected</Text>
+                <View style={styles.resultsBadge}>
+                  <Text style={styles.resultsBadgeText}>✓ Complete</Text>
+                </View>
+              </View>
 
-        {isRecording && (
-          <TouchableOpacity
-            style={[styles.button, styles.stopButton]}
-            onPress={stopAnalysis}
-          >
-            <Text style={styles.buttonText}>Stop Recording</Text>
-          </TouchableOpacity>
-        )}
+              <View style={styles.vitalsGrid}>
+                {chunkVitalCards(renderVitalCards(vitals)).map((row, idx) => (
+                  <View key={`row-${idx}`} style={styles.vitalsRow}>
+                    {row.map(card => (
+                      <View
+                        key={card.key}
+                        style={styles.vitalCardItem}
+                      >
+                        {card.element}
+                      </View>
+                    ))}
+                    {row.length === 1 && (
+                      <View
+                        style={[
+                          styles.vitalCardItem,
+                          styles.vitalCardPlaceholder,
+                        ]}
+                      />
+                    )}
+                  </View>
+                ))}
+              </View>
 
-        {!isRecording && !isAnalyzing && vitals && (
-          <TouchableOpacity
-            style={[styles.button, styles.secondaryButton]}
-            onPress={() => { 
-              setVitals(null); 
-              setAnalysisResult(null); 
-              setFaceDetected(null);
-            }}
-          >
-            <Text style={[styles.buttonText, styles.secondaryButtonText]}>New Analysis</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Sensor Status Indicator */}
-      {sensorStatus && (
-        <Card3D
-          depth={8}
-          style={StyleSheet.flatten([
-            styles.sensorStatusContainer,
-            sensorStatus.isGood ? styles.sensorStatusGood : styles.sensorStatusWarning,
-          ])}
-        >
-          <View style={styles.sensorStatusContent}>
-            <View style={styles.sensorStatusIcon}>
-              {sensorStatus.isGood ? (
-                <Text style={styles.sensorStatusIconText}>✓</Text>
-              ) : (
-                <Text style={styles.sensorStatusIconText}>⚠</Text>
+              {vitals.confidence !== undefined && (
+                <View style={styles.confidenceContainer}>
+                  <View style={styles.confidenceHeader}>
+                    <Text style={styles.confidenceLabel}>
+                      Analysis Confidence
+                    </Text>
+                    <Text style={styles.confidenceValue}>
+                      {Math.round(
+                        ((typeof vitals.confidence === 'string'
+                          ? parseFloat(vitals.confidence)
+                          : vitals.confidence ?? 0) || 0) * 100
+                      )}
+                      %
+                    </Text>
+                  </View>
+                  <View style={styles.confidenceBar}>
+                    <View
+                      style={[
+                        styles.confidenceFill,
+                        {
+                          width: `${
+                            ((typeof vitals.confidence === 'string'
+                              ? parseFloat(vitals.confidence)
+                              : vitals.confidence ?? 0) || 0) * 100
+                          }%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
               )}
-            </View>
-            <View style={styles.sensorStatusTextContainer}>
-              <Text style={styles.sensorStatusText}>
-                {sensorStatus.isGood ? 'Optimal Conditions' : 'Check Conditions'}
+            </Card3D>
+          </View>
+        )}
+
+        <View style={styles.actionsContainer}>
+          {!isRecording && !isAnalyzing && !vitals && (
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.primaryButton,
+                (!hasPermission || !!cameraError) && styles.buttonDisabled,
+              ]}
+              onPress={startAnalysis}
+              disabled={!hasPermission || !!cameraError}
+            >
+              <CameraIcon size={20} color={Colors.background} />
+              <Text style={styles.buttonText}>Start Analysis</Text>
+            </TouchableOpacity>
+          )}
+
+          {isRecording && (
+            <TouchableOpacity
+              style={[styles.button, styles.stopButton]}
+              onPress={stopAnalysis}
+            >
+              <Text style={styles.buttonText}>Stop Recording</Text>
+            </TouchableOpacity>
+          )}
+
+          {!isRecording && !isAnalyzing && vitals && (
+            <TouchableOpacity
+              style={[styles.button, styles.secondaryButton]}
+              onPress={() => {
+                setVitals(null);
+                setAnalysisResult(null);
+                setFaceDetected(null);
+              }}
+            >
+              <Text
+                style={[styles.buttonText, styles.secondaryButtonText]}
+              >
+                New Analysis
               </Text>
-              {sensorStatus.score < 100 && (
-                <Text style={styles.sensorStatusScore}>Quality: {sensorStatus.score}/100</Text>
-              )}
-              {sensorStatus.reasons.length > 0 && (
-                <Text style={styles.sensorStatusReasons}>{sensorStatus.reasons.join(' • ')}</Text>
-              )}
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {sensorStatus && (
+          <Card3D
+            depth={8}
+            style={StyleSheet.flatten([
+              styles.sensorStatusContainer,
+              sensorStatus.isGood
+                ? styles.sensorStatusGood
+                : styles.sensorStatusWarning,
+            ])}
+          >
+            <View style={styles.sensorStatusContent}>
+              <View style={styles.sensorStatusIcon}>
+                <Text style={styles.sensorStatusIconText}>
+                  {sensorStatus.isGood ? '✓' : '⚠'}
+                </Text>
+              </View>
+              <View style={styles.sensorStatusTextContainer}>
+                <Text style={styles.sensorStatusText}>
+                  {sensorStatus.isGood
+                    ? 'Optimal Conditions'
+                    : 'Check Conditions'}
+                </Text>
+                {sensorStatus.score < 100 && (
+                  <Text style={styles.sensorStatusScore}>
+                    Quality: {sensorStatus.score}/100
+                  </Text>
+                )}
+                {sensorStatus.reasons.length > 0 && (
+                  <Text style={styles.sensorStatusReasons}>
+                    {sensorStatus.reasons.join(' • ')}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </Card3D>
+        )}
+
+        <Card3D depth={8} style={styles.instructionsContainer}>
+          <View style={styles.instructionsHeader}>
+            <Text style={styles.instructionsIcon}>💡</Text>
+            <Text style={styles.instructionsTitle}>
+              Tips for Best Accuracy
+            </Text>
+          </View>
+          <View style={styles.instructionsList}>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Use natural or bright, even lighting
+              </Text>
+            </View>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Keep your face centered and fill the frame
+              </Text>
+            </View>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Stay completely still during recording
+              </Text>
+            </View>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Remove glasses, masks, or face coverings
+              </Text>
+            </View>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Keep phone steady (use a stand if possible)
+              </Text>
+            </View>
+            <View style={styles.instructionRow}>
+              <Text style={styles.instructionBullet}>•</Text>
+              <Text style={styles.instructionItem}>
+                Hold phone 20–30 cm from your face
+              </Text>
             </View>
           </View>
         </Card3D>
-      )}
-
-      <Card3D depth={8} style={styles.instructionsContainer}>
-        <View style={styles.instructionsHeader}>
-          <Text style={styles.instructionsIcon}>💡</Text>
-          <Text style={styles.instructionsTitle}>Tips for Best Accuracy</Text>
-        </View>
-        <View style={styles.instructionsList}>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Use natural or bright, even lighting</Text>
-          </View>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Keep your face centered and fill the frame</Text>
-          </View>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Stay completely still during recording</Text>
-          </View>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Remove glasses, masks, or face coverings</Text>
-          </View>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Keep phone steady (use a stand if possible)</Text>
-          </View>
-          <View style={styles.instructionRow}>
-            <Text style={styles.instructionBullet}>•</Text>
-            <Text style={styles.instructionItem}>Hold phone 20-30cm from your face</Text>
-          </View>
-      </View>
-      </Card3D>
       </ScrollView>
     </ScreenBackground>
   );
 }
+
+// --- Styles & helpers ---
 
 const styles = StyleSheet.create({
   scrollView: {
@@ -1070,7 +1153,7 @@ function renderVitalCards(vitals: VitalSigns): VitalCardEntry[] {
       element: (
         <VitalCard3D
           icon={Wind}
-          label="SpO2"
+          label="SpO₂"
           value={vitals.oxygenSaturation}
           unit="%"
           color={VITAL_COLORS.oxygenSaturation}
