@@ -8,13 +8,48 @@ if (typeof global !== 'undefined') {
   global.ignoreDatePickerWarning = true;
 }
 
-import {AppRegistry} from 'react-native';
+import {AppRegistry, ErrorUtils} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 import {ErrorBoundary} from './src/components/ErrorBoundary';
 
-// Note: Global error handler removed as ErrorUtils may not be available in all React Native builds
-// ErrorBoundary component below will handle React component errors
+// Global error handler to catch unhandled errors and prevent crashes
+if (ErrorUtils && typeof ErrorUtils.setGlobalHandler === 'function') {
+  const originalHandler = ErrorUtils.getGlobalHandler();
+  
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    console.error('Global error handler caught:', {
+      error: error?.message || error,
+      stack: error?.stack,
+      isFatal,
+    });
+    
+    // Log the error but don't crash - let ErrorBoundary handle it
+    if (isFatal && originalHandler) {
+      // Only call original handler for truly fatal errors
+      try {
+        originalHandler(error, isFatal);
+      } catch (handlerError) {
+        console.error('Error in global error handler:', handlerError);
+      }
+    }
+  });
+}
+
+// Handle unhandled promise rejections
+if (typeof global !== 'undefined') {
+  const originalUnhandledRejection = global.onunhandledrejection;
+  global.onunhandledrejection = (event) => {
+    console.error('Unhandled promise rejection:', event?.reason || event);
+    // Prevent default crash behavior
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    if (originalUnhandledRejection) {
+      originalUnhandledRejection(event);
+    }
+  };
+}
 
 // NOTE: We no longer set up global function for frame processor
 // processFrameToJS is now passed directly via useFrameProcessor dependency array in VitalsScreen

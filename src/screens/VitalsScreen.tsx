@@ -30,7 +30,7 @@ import {
   useCameraDevice,
 } from 'react-native-vision-camera';
 
-import { useCameraCapture } from '../services/cameraService';
+import { useCameraCapture, VideoRecordingResult } from '../services/cameraService';
 import {
   VitalSignsService,
   VitalSigns,
@@ -213,15 +213,15 @@ export default function VitalsScreen() {
         return;
       }
 
-      console.log('[VitalsScreen] Starting 30-second video recording...');
+      console.log('[VitalsScreen] Starting 20-second video recording...');
 
-      const durationMs = 30000; // 30 seconds
+      const durationMs = 20000; // 20 seconds
 
       // Timer UI
       const startTs = Date.now();
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - startTs;
-        const seconds = Math.min(30, Math.floor(elapsed / 1000));
+        const seconds = Math.min(20, Math.floor(elapsed / 1000));
         setRecordingTime(seconds);
         setRecordingElapsedMs(Math.min(durationMs, elapsed));
 
@@ -230,7 +230,7 @@ export default function VitalsScreen() {
             clearInterval(timerRef.current);
             timerRef.current = null;
           }
-          setRecordingTime(30);
+          setRecordingTime(20);
           setRecordingElapsedMs(durationMs);
         }
       }, 250) as unknown as number;
@@ -246,28 +246,38 @@ export default function VitalsScreen() {
       setIsRecording(false);
 
       console.log(`[VitalsScreen] Video recorded: ${videoResult.path}, size: ${(videoResult.fileSize / (1024 * 1024)).toFixed(2)} MB`);
+      if (videoResult.s3Key) {
+        console.log(`[VitalsScreen] Video uploaded to S3: ${videoResult.s3Key}`);
+      }
 
-      // Analyze video
-      await analyzeVideo(videoResult.path);
+      // Analyze video (pass full result, service will use S3 key if available)
+      await analyzeVideo(videoResult);
     } catch (err: any) {
       console.error('startAnalysisInternal error', err);
-      Alert.alert(
-        'Recording Error',
-        err?.message ?? 'Failed to record video. Please ensure your face is visible and try again.'
-      );
-      setIsRecording(false);
-      setIsAnalyzing(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      
+      // Ensure state is reset even if error occurs
+      try {
+        setIsRecording(false);
+        setIsAnalyzing(false);
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      } catch (stateError) {
+        console.error('Error resetting state:', stateError);
       }
+      
+      // Show user-friendly error message
+      const errorMessage = err?.message ?? 'Failed to record video. Please ensure your face is visible and try again.';
+      Alert.alert('Recording Error', errorMessage);
     }
   }, [device, isRecording, isAnalyzing, recordVideo, cameraRef]);
 
   // --- Analyze video file via backend service ---
   const analyzeVideo = useCallback(
-    async (videoPath: string) => {
-      if (!videoPath) {
+    async (videoResult: VideoRecordingResult | string) => {
+      const videoPath = typeof videoResult === 'string' ? videoResult : videoResult.path;
+      if (!videoPath && !(typeof videoResult === 'object' && videoResult.s3Key)) {
         Alert.alert(
           'No video recorded',
           'Please ensure your face is visible and try again.'
@@ -278,7 +288,17 @@ export default function VitalsScreen() {
       setIsAnalyzing(true);
 
       try {
-        const result = await VitalSignsService.analyzeVideoFile(videoPath);
+        // Add 5-minute timeout wrapper to ensure analysis has enough time
+        const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+        
+        const analysisPromise = VitalSignsService.analyzeVideoFile(videoResult);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Analysis timed out. The video file may be too large or processing took too long. Please try again.'));
+          }, ANALYSIS_TIMEOUT_MS);
+        });
+        
+        const result = await Promise.race([analysisPromise, timeoutPromise]);
 
         console.log(
           '[VitalsScreen] Analysis result:',
@@ -319,13 +339,18 @@ export default function VitalsScreen() {
         }, 100);
       } catch (err: any) {
         console.error('[VitalsScreen] Analysis error:', err);
-        Alert.alert(
-          'Analysis Error',
-          err?.message ?? 'Unknown error during analysis'
-        );
-      } finally {
-        setIsAnalyzing(false);
-        setIsRecording(false);
+        
+        // Ensure state is reset
+        try {
+          setIsAnalyzing(false);
+          setIsRecording(false);
+        } catch (stateError) {
+          console.error('Error resetting analysis state:', stateError);
+        }
+        
+        // Show user-friendly error message
+        const errorMessage = err?.message ?? 'Unknown error during analysis';
+        Alert.alert('Analysis Error', errorMessage);
       }
     },
     [navigation]
@@ -415,7 +440,7 @@ export default function VitalsScreen() {
 
   const progressPercentage = Math.min(
     100,
-    Math.max(0, Math.round((recordingElapsedMs / 30000) * 100))
+    Math.max(0, Math.round((recordingElapsedMs / 20000) * 100))
   );
 
   const shouldRenderCamera = hasPermission && !!device;
@@ -441,7 +466,7 @@ export default function VitalsScreen() {
           <View style={styles.headerContent}>
             <Text style={styles.title}>AI Vital Signs</Text>
             <Text style={styles.subtitle}>
-              Position your face in front of the camera for 30 seconds
+              Position your face in front of the camera for 20 seconds
             </Text>
           </View>
         </View>
@@ -455,22 +480,31 @@ export default function VitalsScreen() {
                   style={StyleSheet.absoluteFill}
                   device={device}
                   isActive={true} // keep always active on this screen
-                  photo={true}
-                  video={true}
+                  video={true} // Required for startRecording() to work
                   enableZoomGesture={false}
                   onInitialized={() => {
                     console.log('[VitalsScreen] Camera initialized and ready');
+                    setCameraError(null); // Clear any previous errors
                   }}
                   onError={err => {
                     console.error('Camera error', err);
                     const errorMessage = err?.message ?? 'Unknown camera error';
+                    const errorCode = (err as any)?.code ?? '';
+                    
+                    // Set error state but don't show alert for known non-critical errors
                     setCameraError(errorMessage);
+                    
+                    // Only show alert for critical errors that prevent functionality
                     if (
                       !errorMessage.includes('invalid-output-configuration') &&
                       !errorMessage.includes('session') &&
-                      !errorMessage.includes('frame-processors-unavailable')
+                      !errorMessage.includes('frame-processors-unavailable') &&
+                      errorCode !== 'session/invalid-output-configuration'
                     ) {
-                      Alert.alert('Camera Error', errorMessage);
+                      // Don't spam alerts for non-critical errors
+                      if (!errorMessage.includes('permission') && !errorMessage.includes('device')) {
+                        console.warn('[VitalsScreen] Camera error (non-critical):', errorMessage);
+                      }
                     }
                   }}
                 />

@@ -5,6 +5,7 @@ import SensorService from './sensorService';
 import { Buffer } from 'buffer';
 import RNFS from 'react-native-fs';
 import * as Keychain from 'react-native-keychain';
+import { VideoRecordingResult } from './cameraService';
 
 export interface VitalSigns {
   heartRate?: number; // BPM
@@ -31,15 +32,20 @@ export interface FaceAnalysisResult {
 export class VitalSignsService {
   /**
    * Analyze vital signs from a video file
-   * Records a 30-second video and sends it to backend for processing
-   * @param videoPath - Path to the video file
+   * Records a 20-second video and sends it to backend for processing
+   * @param videoResult - Video recording result (path or S3 key)
    * @returns Analysis result with vital signs
    */
-  static async analyzeVideoFile(videoPath: string): Promise<FaceAnalysisResult> {
+  static async analyzeVideoFile(videoResult: VideoRecordingResult | string): Promise<FaceAnalysisResult> {
     const startTime = Date.now();
 
     try {
-      if (!videoPath) {
+      // Handle both old string path and new VideoRecordingResult format
+      const videoPath = typeof videoResult === 'string' ? videoResult : videoResult.path;
+      const s3Key = typeof videoResult === 'string' ? undefined : videoResult.s3Key;
+      const fileSize = typeof videoResult === 'string' ? undefined : videoResult.fileSize;
+
+      if (!videoPath && !s3Key) {
         throw new Error('No video file provided for analysis');
       }
 
@@ -53,13 +59,17 @@ export class VitalSignsService {
 
       // Get file stats (optional - for logging)
       let videoSizeMB = '0';
-      try {
-        const fileStats = await RNFS.stat(videoPath);
-        videoSizeMB = ((fileStats.size || 0) / (1024 * 1024)).toFixed(2);
-        console.log(`[VitalSignsService] Video file size: ${videoSizeMB} MB`);
-      } catch (error) {
-        console.log('[VitalSignsService] Could not get file stats, continuing anyway');
+      if (fileSize) {
+        videoSizeMB = ((fileSize / (1024 * 1024))).toFixed(2);
+      } else if (videoPath) {
+        try {
+          const fileStats = await RNFS.stat(videoPath);
+          videoSizeMB = ((fileStats.size || 0) / (1024 * 1024)).toFixed(2);
+        } catch (error) {
+          console.log('[VitalSignsService] Could not get file stats, continuing anyway');
+        }
       }
+      console.log(`[VitalSignsService] Video file size: ${videoSizeMB} MB`);
 
       // Get user profile for calibration
       const { AuthService } = require('./authService');
@@ -69,64 +79,145 @@ export class VitalSignsService {
         gender: user.gender,
       } : undefined;
 
-      // Send video file to backend using multipart/form-data
-      // Use React Native's global FormData (polyfilled by React Native)
-      const formData = new FormData();
-      
-      // For React Native, we need to use the file URI format
-      const videoUri = Platform.OS === 'android' ? `file://${videoPath}` : videoPath;
-      
-      // Append video file - React Native FormData expects { uri, type, name }
-      formData.append('video', {
-        uri: videoUri,
-        type: 'video/mp4',
-        name: 'vitals_video.mp4',
-      } as any);
-      
-      if (sensorData) {
-        formData.append('sensorData', JSON.stringify(sensorData));
-      }
-      if (userProfile) {
-        formData.append('userProfile', JSON.stringify(userProfile));
-      }
+      let response: any;
 
-      console.log('[VitalSignsService] Sending video file for analysis...');
-      
-      // Get auth token from Keychain
-      let token = '';
-      try {
+      // Option 1: Use S3 key if available (preferred for large files)
+      if (s3Key) {
+        console.log('[VitalSignsService] Using S3 key for video analysis:', s3Key);
+        
+        const requestBody: any = {
+          s3Key: s3Key,
+        };
+        
+        if (sensorData) {
+          requestBody.sensorData = sensorData;
+        }
+        if (userProfile) {
+          requestBody.userProfile = userProfile;
+        }
+
+        response = await videoApi.post('/ai/analyze-video-file', requestBody, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 180000, // 3 minutes for video processing
+        });
+      } 
+      // Option 2: Upload file directly using FormData (memory-efficient, streams file)
+      else if (videoPath) {
+        console.log('[VitalSignsService] Uploading video file directly using FormData...');
+        
+        // Use React Native's built-in FormData to upload file directly without loading into memory
+        // This is much more memory-efficient than base64 encoding (avoids OOM errors)
+        const formData = new FormData();
+        
+        // Clean the path (remove file:// prefix if present for Android)
+        const cleanPath = videoPath.replace(/^file:\/\//, '');
+        console.log(`[VitalSignsService] Adding video file to FormData: ${cleanPath}`);
+        
+        // Add video file to FormData
+        // React Native FormData requires uri, type, and name
+        const fileUri = Platform.OS === 'android' ? `file://${cleanPath}` : cleanPath;
+        formData.append('video', {
+          uri: fileUri,
+          type: 'video/mp4',
+          name: 'video.mp4',
+        } as any);
+        
+        // Add sensor data if available (as JSON string)
+        if (sensorData) {
+          formData.append('sensorData', JSON.stringify(sensorData));
+        }
+        
+        // Add user profile if available (as JSON string)
+        if (userProfile) {
+          formData.append('userProfile', JSON.stringify(userProfile));
+        }
+        
+        console.log(`[VitalSignsService] Uploading video via FormData (${videoSizeMB} MB)...`);
+        console.log(`[VitalSignsService] File URI: ${fileUri}`);
+        
+        // For large file uploads, use native fetch API instead of axios
+        // React Native's fetch handles FormData better for large files and is more reliable
+        const baseURL = videoApi.defaults.baseURL;
+        const url = `${baseURL}/ai/analyze-video-file`;
+        
+        // Get auth token
         const credentials = await Keychain.getGenericPassword();
-        if (credentials && credentials.password) {
-          token = credentials.password;
+        const authToken = credentials ? credentials.password : null;
+        
+        if (!authToken) {
+          throw new Error('Authentication token not found. Please log in again.');
         }
-      } catch (error) {
-        console.error('[VitalSignsService] Error getting auth token:', error);
-      }
-      
-      const baseURL = videoApi.defaults.baseURL || 'http://13.203.161.24:4000/v1';
-      
-      // Use fetch with FormData for file upload
-      const response = await fetch(`${baseURL}/ai/analyze-video-file`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          // Don't set Content-Type - let fetch set it with boundary for multipart/form-data
-        },
-        body: formData as any,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
+        
+        console.log(`[VitalSignsService] Starting upload to ${url}...`);
+        const uploadStartTime = Date.now();
+        
+        // Use fetch API for large file uploads (better handling of large FormData in React Native)
+        // Fetch API in React Native handles streaming uploads better than axios
+        // Set a very long timeout (10 minutes) since video processing can take time
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout
+        
         try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || `HTTP ${response.status}` };
+          const fetchResponse = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${authToken}`,
+              // Don't set Content-Type - let fetch set it with boundary for FormData
+            },
+            body: formData,
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          const uploadTime = Date.now() - uploadStartTime;
+          console.log(`[VitalSignsService] Upload completed in ${(uploadTime / 1000).toFixed(2)}s, status: ${fetchResponse.status}`);
+          
+          if (!fetchResponse.ok) {
+            const errorData = await fetchResponse.json().catch(() => ({ error: 'Unknown error' }));
+            const error: any = new Error(`Request failed with status ${fetchResponse.status}`);
+            error.response = {
+              status: fetchResponse.status,
+              statusText: fetchResponse.statusText,
+              data: errorData,
+            };
+            throw error;
+          }
+          
+          const responseData = await fetchResponse.json();
+          response = { data: responseData };
+          
+          const totalTime = Date.now() - uploadStartTime;
+          console.log(`[VitalSignsService] Upload and processing completed successfully in ${(totalTime / 1000).toFixed(2)}s`);
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          
+          // Handle abort/timeout
+          if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+            const error: any = new Error('Upload timed out. The video processing is taking longer than expected. Please try again.');
+            error.code = 'ECONNABORTED';
+            throw error;
+          }
+          
+          // Handle network errors
+          if (fetchError.message === 'Network request failed' || fetchError.message?.includes('Network')) {
+            console.error('[VitalSignsService] Network error details:', fetchError);
+            // Re-throw with more context
+            const error: any = new Error('Network connection failed. The upload may have completed but the response was lost. Please check your connection.');
+            error.code = 'ERR_NETWORK';
+            throw error;
+          }
+          
+          // Re-throw other errors
+          throw fetchError;
         }
-        throw new Error(errorData.error || errorData.message || 'Upload failed');
+      } else {
+        throw new Error('No video file or S3 key provided');
       }
 
-      const responseData = await response.json();
+      const responseData = response.data;
 
       if (!responseData || !responseData.success) {
         throw new Error(responseData?.error || 'Analysis failed');
@@ -196,16 +287,37 @@ export class VitalSignsService {
       };
     } catch (error: any) {
       console.error('Error analyzing video file:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        code: error?.code,
+        response: error?.response?.data,
+        status: error?.response?.status,
+        timeout: error?.code === 'ECONNABORTED',
+      });
       
-      if (error.code === 'ERR_NETWORK') {
-        throw new Error('Network connection failed. Please check your connection and try again.');
-      } else if (error.respInfo?.status === 413 || error.status === 413) {
-        throw new Error('Video file is too large. Please try again with a shorter recording.');
-      } else if (error.respInfo?.status === 400 || error.status === 400) {
-        const errorData = typeof error.json === 'function' ? await error.json().catch(() => ({})) : {};
-        throw new Error(errorData?.message || 'Invalid video file. Please ensure your face is visible and try again.');
+      // Handle axios-specific errors
+      if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
+        if (error.code === 'ECONNABORTED') {
+          throw new Error('Upload timed out. The video file may be too large or your connection is too slow. Please try again with a better connection.');
+        }
+        // Network error - could be connection issue or server not reachable
+        const errorMsg = 'Network connection failed. This could be due to:\n' +
+          '• Slow or unstable internet connection\n' +
+          '• Server is temporarily unavailable\n' +
+          '• File size is too large for current connection\n\n' +
+          'Please check your connection and try again.';
+        throw new Error(errorMsg);
+      } else if (error.response?.status === 413) {
+        throw new Error('Video file is too large (over 150MB). Please try again with a shorter recording.');
+      } else if (error.response?.status === 400) {
+        const errorData = error.response?.data || {};
+        throw new Error(errorData?.error || errorData?.message || 'Invalid video file. Please ensure your face is visible and try again.');
+      } else if (error.response?.status === 401) {
+        throw new Error('Authentication failed. Please log in again.');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Server error. Please try again later.');
       } else {
-        throw new Error(error?.message || 'Failed to analyze video. Please try again.');
+        throw new Error(error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Failed to analyze video. Please try again.');
       }
     }
   }
@@ -482,7 +594,7 @@ export class VitalSignsService {
           '1. AWS Security Group allows port 4000\n' +
           '2. Server is running on AWS\n' +
           '3. Your device has internet connection\n' +
-          '\nTry: curl http://13.203.161.24:4000/health from your computer to verify server accessibility.';
+          '\nTry: curl http://35.154.207.79:4000/health from your computer to verify server accessibility.';
         throw new Error(errorMsg);
       }
       
