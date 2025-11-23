@@ -134,6 +134,9 @@ export class VitalSignsService {
           formData.append('userProfile', JSON.stringify(userProfile));
         }
         
+        // Always save results to database
+        formData.append('save', 'true');
+        
         console.log(`[VitalSignsService] Uploading video via FormData (${videoSizeMB} MB)...`);
         console.log(`[VitalSignsService] File URI: ${fileUri}`);
         

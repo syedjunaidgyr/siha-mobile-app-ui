@@ -311,6 +311,7 @@ export default function VitalsScreen() {
 
         setAnalysisResult(result);
         setVitals(result.vitals ?? null);
+        setIsAnalyzing(false); // Analysis complete
 
         setTimeout(async () => {
           const user = await AuthService.getStoredUser();
@@ -415,6 +416,8 @@ export default function VitalsScreen() {
 
   // --- Scanning animation ---
   const scanProgress = useSharedValue(0);
+  const analyzingRotation = useSharedValue(0);
+  
   useEffect(() => {
     if (isRecording) {
       scanProgress.value = withRepeat(
@@ -427,6 +430,18 @@ export default function VitalsScreen() {
     }
   }, [isRecording, scanProgress]);
 
+  useEffect(() => {
+    if (isAnalyzing) {
+      analyzingRotation.value = withRepeat(
+        withTiming(360, { duration: 2000 }),
+        -1,
+        false
+      );
+    } else {
+      analyzingRotation.value = 0;
+    }
+  }, [isAnalyzing, analyzingRotation]);
+
   const scanBarStyle = useAnimatedStyle(() => {
     const translateY = interpolate(
       scanProgress.value,
@@ -435,6 +450,16 @@ export default function VitalsScreen() {
     );
     return {
       transform: [{ translateY }],
+    };
+  }, []);
+
+  const analyzingSpinnerStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          rotate: `${analyzingRotation.value}deg`,
+        },
+      ],
     };
   }, []);
 
@@ -550,6 +575,22 @@ export default function VitalsScreen() {
                     </View>
                     <Text style={styles.progressText}>
                       {progressPercentage}%
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {isAnalyzing && !isRecording && (
+                <View style={styles.analyzingOverlay}>
+                  <View style={styles.analyzingContent}>
+                    <Animated.View
+                      style={[styles.analyzingSpinner, analyzingSpinnerStyle]}
+                    >
+                      <Activity size={32} color={Colors.accent} />
+                    </Animated.View>
+                    <Text style={styles.analyzingText}>Analyzing Video...</Text>
+                    <Text style={styles.analyzingSubtext}>
+                      Processing vital signs from your recording
                     </Text>
                   </View>
                 </View>
@@ -929,6 +970,36 @@ const styles = StyleSheet.create({
   progressText: {
     ...TextStyles.h4,
     color: Colors.white,
+  },
+  analyzingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(32, 32, 34, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  analyzingContent: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  analyzingSpinner: {
+    marginBottom: 24,
+  },
+  analyzingText: {
+    ...TextStyles.h3,
+    color: Colors.white,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  analyzingSubtext: {
+    ...TextStyles.body,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    opacity: 0.8,
   },
   resultsWrapper: {
     marginHorizontal: 20,
