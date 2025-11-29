@@ -20,6 +20,7 @@ import {
   Droplet,
   TrendingUp,
   Calendar as CalendarIcon,
+  Scale,
 } from 'lucide-react-native';
 
 type CalendarDay = {
@@ -278,6 +279,22 @@ export default function LifestylePredictionScreen() {
                     <Text style={styles.healthLabel}>Water</Text>
                   </View>
                 </View>
+                {prediction.bmi != null && (
+                  <View style={styles.healthItem}>
+                    <Scale size={24} color="#f59e0b" />
+                    <View style={styles.healthContent}>
+                      <Text style={styles.healthValue} numberOfLines={1}>
+                        {typeof prediction.bmi === 'number' ? prediction.bmi.toFixed(1) : prediction.bmi}
+                      </Text>
+                      {prediction.bmi_category && (
+                        <Text style={styles.healthSubValue} numberOfLines={1}>
+                          {prediction.bmi_category}
+                        </Text>
+                      )}
+                      <Text style={styles.healthLabel}>BMI</Text>
+                    </View>
+                  </View>
+                )}
               </View>
             </Card3D>
 
@@ -573,24 +590,34 @@ const styles = StyleSheet.create({
   },
   healthRow: {
     flexDirection: 'row',
-    gap: 16,
+    flexWrap: 'wrap',
+    gap: 12,
   },
   healthItem: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
     gap: 12,
+    flex: 1,
+    minWidth: '47%',
+    maxWidth: '48%',
   },
   healthContent: {
     flex: 1,
+    minWidth: 0,
   },
   healthValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#1F2937',
+  },
+  healthSubValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+    textTransform: 'capitalize',
   },
   healthLabel: {
     fontSize: 14,

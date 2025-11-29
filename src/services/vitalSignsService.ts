@@ -597,7 +597,7 @@ export class VitalSignsService {
           '1. AWS Security Group allows port 4000\n' +
           '2. Server is running on AWS\n' +
           '3. Your device has internet connection\n' +
-          '\nTry: curl http://35.154.207.79:4000/health from your computer to verify server accessibility.';
+          '\nTry: curl http://13.203.232.71:4000/health from your computer to verify server accessibility.';
         throw new Error(errorMsg);
       }
       

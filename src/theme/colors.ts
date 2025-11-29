@@ -19,6 +19,8 @@ export const Colors = {
   lifestyleButton: '#4F46E5',
   avgStepCard: '#FFFFFF',
   avgHrCard: '#FFFFFF',
+  caloriesCard: '#FFFFFF',
+  bmiCard: '#FFFFFF',
   success: '#059669', // Deep Emerald - softer green
   danger: '#DC2626', // Deep Red - not too bright
   info: '#2563EB', // Deep Blue

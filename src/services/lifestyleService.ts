@@ -14,6 +14,8 @@ export interface LifestylePrediction {
   sleep_hours: number;
   water_intake_liters: number;
   lifestyle_score: number;
+  bmi?: number;
+  bmi_category?: string;
   notes?: string;
   created_at: string;
   updated_at: string;

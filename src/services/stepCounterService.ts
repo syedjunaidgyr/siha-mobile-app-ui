@@ -2,6 +2,7 @@ import { Platform, PermissionsAndroid } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MetricService } from './metricService';
 import { AuthService } from './authService';
+import { ProfileService } from './profileService';
 import NativeStepCounter from './nativeStepCounter';
 
 // Dynamic import for react-native-health
@@ -401,20 +402,47 @@ export class StepCounterService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
+      // Get user weight from profile for accurate calorie calculation
+      let userWeight = 70; // Default to average weight
+      try {
+        const profile = await ProfileService.getProfile();
+        if (profile.weight && profile.weight > 0) {
+          userWeight = profile.weight;
+        }
+      } catch (error) {
+        console.log('[StepCounter] Could not fetch profile for weight, using default');
+      }
+
+      // Calculate calories burnt from steps
+      // Formula: Calories = Steps × (Weight in kg × 0.04)
+      const caloriesBurnt = Math.round(this.stepCount * userWeight * 0.04);
+
+      // Prepare metrics to sync
+      const metricsToSync: any[] = [
+        {
+          metric_type: 'steps',
+          value: this.stepCount,
+          unit: 'count',
+          start_time: today.toISOString(),
+          end_time: new Date().toISOString(),
+          source: Platform.OS === 'ios' ? 'healthkit_device' : 'health_connect_device',
+        },
+      ];
+
+      // Add calories if steps > 0
+      if (this.stepCount > 0 && caloriesBurnt > 0) {
+        metricsToSync.push({
+          metric_type: 'calories',
+          value: caloriesBurnt,
+          unit: 'kcal',
+          start_time: today.toISOString(),
+          end_time: new Date().toISOString(),
+          source: Platform.OS === 'ios' ? 'healthkit_device' : 'health_connect_device',
+        });
+      }
+
       // Sync to backend
-      await MetricService.syncHealthKit(
-        [
-          {
-            metric_type: 'steps',
-            value: this.stepCount,
-            unit: 'count',
-            start_time: today.toISOString(),
-            end_time: new Date().toISOString(),
-            source: Platform.OS === 'ios' ? 'healthkit_device' : 'health_connect_device',
-          },
-        ],
-        undefined
-      );
+      await MetricService.syncHealthKit(metricsToSync, undefined);
 
       await AsyncStorage.multiSet([
         [LAST_SYNC_KEY, now.toISOString()],

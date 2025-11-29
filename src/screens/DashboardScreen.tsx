@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Dimensions } from 'react-native';
-import { Activity, Heart, TrendingUp, Camera, Wind, ArrowRight, Bell, Calendar, Clock, Zap, Target, BarChart3, Droplet, Shield, Thermometer, AlertTriangle, Flame, Footprints } from 'lucide-react-native';
+import { Activity, Heart, TrendingUp, Camera, Wind, ArrowRight, Bell, Calendar, Clock, Zap, Target, BarChart3, Droplet, Shield, Thermometer, AlertTriangle, Flame, Footprints, Scale } from 'lucide-react-native';
 import { MetricService } from '../services/metricService';
 import { AuthService } from '../services/authService';
 import { StepCounterService } from '../services/stepCounterService';
@@ -340,6 +340,67 @@ export default function DashboardScreen() {
     // Use device steps if available and higher, otherwise use backend steps
     // This ensures we show the most up-to-date count
     return Math.max(Math.round(backendSteps), deviceSteps);
+  };
+
+  /**
+   * Get today's burnt calories from metrics
+   */
+  const getTodayBurntCalories = (): number => {
+    if (!metrics?.rows) {
+      // Fallback: calculate from steps if metrics not loaded yet
+      return calculateCaloriesFromSteps(getTodaySteps(), user?.weight);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const burntCalories = metrics.rows
+      .filter((m: any) => {
+        if (m.metric_type !== 'calories') return false;
+        const recordDate = new Date(m.start_time);
+        recordDate.setHours(0, 0, 0, 0);
+        return recordDate.getTime() === today.getTime();
+      })
+      .reduce((sum: number, m: any) => sum + parseFloat(m.value), 0);
+    
+    // If no calories in metrics yet, calculate from steps
+    if (burntCalories === 0) {
+      return calculateCaloriesFromSteps(getTodaySteps(), user?.weight);
+    }
+    
+    return Math.round(burntCalories);
+  };
+
+  /**
+   * Get remaining calories to burn based on AI target
+   */
+  const getRemainingCaloriesToBurn = (): { burnt: number; target: number; remaining: number; percentage: number } => {
+    const burnt = getTodayBurntCalories();
+    const target = lifestylePrediction?.predicted_calories || 0;
+    const remaining = Math.max(0, target - burnt);
+    const percentage = target > 0 ? Math.min(100, Math.round((burnt / target) * 100)) : 0;
+    
+    return { burnt, target, remaining, percentage };
+  };
+
+  /**
+   * Calculate calories burnt from steps
+   * Formula: Calories = Steps × (Weight in kg × 0.04)
+   * This is based on average walking pace (3-4 mph)
+   * Falls back to average person (70kg) if weight not available
+   */
+  const calculateCaloriesFromSteps = (steps: number, weightKg?: number): number => {
+    if (!steps || steps <= 0) return 0;
+    
+    // Use user weight if available, otherwise use average (70kg)
+    const weight = weightKg && weightKg > 0 ? weightKg : 70;
+    
+    // Calories per step = weight (kg) × 0.04
+    // This accounts for walking at moderate pace
+    const caloriesPerStep = weight * 0.04;
+    const calories = steps * caloriesPerStep;
+    
+    return Math.round(calories);
   };
 
   const getStepsData = () => {
@@ -694,7 +755,7 @@ export default function DashboardScreen() {
 
           <Card3D depth={12} style={StyleSheet.flatten([styles.cardSurface, styles.statCard, styles.avgHrCard])}>
             <View style={styles.statIconContainer}>
-              <Heart size={24} color={Colors.textPrimary} />
+              <Heart size={20} color={Colors.textPrimary} />
             </View>
           <Text style={styles.statValue}>
             {heartRateChart.data.length > 0
@@ -702,10 +763,64 @@ export default function DashboardScreen() {
                 : latestVitals?.heart_rate?.value || 0}
           </Text>
             <View style={styles.statLabelContainer}>
-              <Heart size={14} color={Colors.textSecondary} />
+              <Heart size={12} color={Colors.textSecondary} />
           <Text style={styles.statLabel}>Avg HR (bpm)</Text>
             </View>
           </Card3D>
+
+          <Card3D depth={12} style={StyleSheet.flatten([styles.cardSurface, styles.statCard, styles.caloriesCard])}>
+            <View style={styles.statIconContainer}>
+              <Flame size={20} color={Colors.textPrimary} />
+            </View>
+            {(() => {
+              const { burnt, target, remaining, percentage } = getRemainingCaloriesToBurn();
+              return (
+                <>
+                  <Text style={styles.statValue}>{burnt}</Text>
+                  {target > 0 && (
+                    <View style={styles.caloriesProgressContainer}>
+                      <View style={styles.caloriesProgressBar}>
+                        <View 
+                          style={[
+                            styles.caloriesProgressFill, 
+                            { width: `${percentage}%` }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={styles.caloriesProgressText}>
+                        {remaining > 0 ? `${remaining} left` : 'Goal reached!'}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.statLabelContainer}>
+                    <Flame size={12} color={Colors.textSecondary} />
+                    <Text style={styles.statLabel}>
+                      {target > 0 ? `Burnt / ${target}` : 'Calories Burnt'}
+                    </Text>
+                  </View>
+                </>
+              );
+            })()}
+          </Card3D>
+
+          {lifestylePrediction?.bmi != null && (
+            <Card3D depth={12} style={StyleSheet.flatten([styles.cardSurface, styles.statCard, styles.bmiCard])}>
+              <View style={styles.statIconContainer}>
+                <Scale size={20} color={Colors.textPrimary} />
+              </View>
+            <Text style={styles.statValue}>
+              {typeof lifestylePrediction.bmi === 'number' 
+                ? lifestylePrediction.bmi.toFixed(1) 
+                : lifestylePrediction.bmi}
+            </Text>
+              <View style={styles.statLabelContainer}>
+                <Scale size={12} color={Colors.textSecondary} />
+            <Text style={styles.statLabel}>
+              BMI{lifestylePrediction.bmi_category ? ` (${lifestylePrediction.bmi_category})` : ''}
+            </Text>
+              </View>
+            </Card3D>
+          )}
         </View>
 
         {(preventiveInsights || insightsLoading || insightsError) && (
@@ -1270,8 +1385,9 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     marginTop: 20,
-    gap: 14,
+    gap: 10,
   },
   preventiveCard: {
     marginHorizontal: 0,
@@ -1533,8 +1649,8 @@ const styles = StyleSheet.create({
     color: Colors.danger,
   },
   statCard: {
-    flex: 1,
-    padding: 18,
+    width: '48%',
+    padding: 12,
     alignItems: 'center',
     borderWidth: 0,
   },
@@ -1544,14 +1660,44 @@ const styles = StyleSheet.create({
   avgHrCard: {
     backgroundColor: Colors.avgHrCard,
   },
+  caloriesCard: {
+    backgroundColor: Colors.caloriesCard,
+  },
+  bmiCard: {
+    backgroundColor: Colors.bmiCard,
+  },
+  caloriesProgressContainer: {
+    width: '100%',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  caloriesProgressBar: {
+    width: '100%',
+    height: 4,
+    backgroundColor: Colors.cardAlt,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 2,
+  },
+  caloriesProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.accent,
+    borderRadius: 2,
+  },
+  caloriesProgressText: {
+    fontSize: 9,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
   statIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: Colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: Colors.border,
     shadowColor: Colors.backgroundDark,
@@ -1561,10 +1707,10 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   statValue: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '800',
     color: Colors.textPrimary,
-    marginTop: 8,
+    marginTop: 6,
     letterSpacing: -0.5,
   },
   statLabelContainer: {
@@ -1574,11 +1720,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   statLabel: {
-    fontSize: 13,
+    fontSize: 10,
     color: Colors.textSecondary,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '500',
+    marginTop: 2,
   },
   chartContainer: {
     marginHorizontal: 0,
